@@ -38,8 +38,6 @@ async def scrape_jobstreet_jobs(
                     )
                     existing_job_details = get_jobstreet_details_by_job_id(db, job.id)
                     if existing_job_details:
-                        existing_job_details.is_new = False
-                        update_jobstreet_details(db, existing_job_details)
                         print(
                             f"Job with ID {job.id} already exists in the database. Skipping."
                         )
@@ -61,7 +59,7 @@ async def scrape_jobstreet_jobs(
                         )
                     print("-" * 50)
                 search_params.page += 1
-                await asyncio.sleep(3)
+                await asyncio.sleep(5)
 
             create_jobstreet_details_bulk(db, job_details_list)
     except Exception as e:
