@@ -1,0 +1,27 @@
+from nicegui import ui
+
+from src.jobstreet.db import GetJobstreetDetailsFilters
+from src.view.global_state import global_state
+from src.view.jobstreet.jobstreet_state import jobstreet_state
+
+
+def filter_bar_view(on_filter_changed):
+    def on_toggle_new(e):
+        match global_state.job_board:
+            case "Jobstreet":
+                filters = GetJobstreetDetailsFilters(is_new=e.value)
+                jobstreet_state.get_jobs(filters=filters)
+                pass
+
+        on_filter_changed()
+
+    with ui.card().classes(
+        "w-full bg-white border border-slate-200/80 shadow-none rounded-md px-3 py-2"
+    ):
+        with ui.row().classes("w-full items-center justify-between gap-3"):
+            with ui.row().classes("items-center gap-4 flex-1"):
+                ui.checkbox(
+                    "Show NEW only",
+                    value=global_state.show_new_only,
+                    on_change=on_toggle_new,
+                ).props("dense").classes("text-sm font-medium text-slate-700")
