@@ -1,8 +1,30 @@
-from typing import Optional
+import math
+from typing import Generic, Optional, TypeVar
 import uuid
+from attr import dataclass
 from sqlalchemy import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from src.db.database import BaseEntity
+
+
+@dataclass(slots=True)
+class PaginatedList[T]:
+    items: list[T]
+    total: int
+    page: int
+    page_size: int
+
+    @property
+    def total_pages(self) -> int:
+        return math.ceil(self.total / self.page_size) if self.page_size > 0 else 0
+
+    @property
+    def has_next(self) -> bool:
+        return self.page < self.total_pages
+
+    @property
+    def has_prev(self) -> bool:
+        return self.page > 1
 
 
 class JobDetails(BaseEntity):
