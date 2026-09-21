@@ -45,6 +45,9 @@ async def scrape_jobstreet_jobs(
                         continue
 
                     job_details = JobStreetJobDetails.from_api_data(job)
+                    if any(j.job_id == job.id for j in job_details_list):
+                        continue
+
                     job_details_list.append(job_details)
 
                     print(
