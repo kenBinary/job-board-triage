@@ -1,7 +1,9 @@
 from nicegui import ui
 
+from src.indeed.db import GetIndeedDetailsFilters
 from src.jobstreet.db import GetJobstreetDetailsFilters
 from src.view.global_state import global_state
+from src.view.indeed.indeed_state import indeed_state
 from src.view.jobstreet.jobstreet_state import jobstreet_state
 
 
@@ -11,7 +13,9 @@ def filter_bar_view(on_filter_changed):
             case "Jobstreet":
                 filters = GetJobstreetDetailsFilters(is_new=e.value)
                 jobstreet_state.get_jobs(filters=filters)
-                pass
+            case "Indeed":
+                filters = GetIndeedDetailsFilters(is_new=e.value)
+                indeed_state.get_jobs(filters=filters)
 
         on_filter_changed()
 
