@@ -1,5 +1,6 @@
 import asyncio
 import json
+import random
 import re
 
 from src.indeed.models.schemas import IndeedSearchResultPayload
@@ -7,7 +8,7 @@ from src.indeed.models.schemas import IndeedSearchResultPayload
 
 async def fetch_job(page) -> IndeedSearchResultPayload | None:
     print("Scraping: ", await page.title())
-    await asyncio.sleep(10)
+    await asyncio.sleep(random.uniform(5.0, 15.0))
 
     script_text = await page.locator("script#mosaic-data").inner_text()
     pattern = (
