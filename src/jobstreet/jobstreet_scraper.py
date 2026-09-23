@@ -1,10 +1,10 @@
 import asyncio
 import math
+import random
 from src.db.database import SessionLocal
 from src.jobstreet.db import (
     create_jobstreet_details_bulk,
     get_jobstreet_details_by_job_id,
-    update_jobstreet_details,
 )
 from src.jobstreet.get_jobs import JobSearchParams, fetch_jobs, WorkArrangementEnum
 from src.jobstreet.models.jobstreet_job_details import JobStreetJobDetails
@@ -141,7 +141,7 @@ async def scrape_jobstreet() -> None:
             await scrape_jobstreet_jobs(search_params, max_page=MAX_PAGE_TO_SCRAPE)
 
             if index < total_items - 1:
-                await asyncio.sleep(10)
+                await asyncio.sleep(random.uniform(4.0, 10.0))
 
             print("" + "=" * 50 + "\n")
             print("" + "=" * 50 + "\n")
