@@ -11,4 +11,5 @@ dependencies = [
     "nicegui>=3.17.1",
     "pydantic>=2.13.5",
     "sqlalchemy>=2.0.54",
+    "typer>=0.27.2",
 ]
