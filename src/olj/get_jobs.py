@@ -90,8 +90,6 @@ def parse_job_listings(html_content: str) -> list[OljJobSchema]:
     return [parse_job_card(card) for card in job_cards]
 
 
-links = ["https://www.onlinejobs.ph/jobseekers/jobsearch?jobkeyword=developer"]
-
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:156.0) Gecko/20100101 Firefox/156.0",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
