@@ -21,6 +21,7 @@ def filter_bar_view(on_filter_changed):
             case "OLJ":
                 filters = GetOljDetailsFilters(is_new=e.value)
                 olj_state.get_jobs(filters=filters)
+        global_state.show_new_only = e.value
 
         on_filter_changed()
 
