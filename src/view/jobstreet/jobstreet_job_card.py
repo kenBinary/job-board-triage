@@ -3,7 +3,7 @@ from nicegui import ui
 from src.db.database import SessionLocal
 from src.jobstreet.db import update_jobstreet_details
 from src.jobstreet.models.jobstreet_job_details import JobStreetJobDetails
-from src.view.global_state import global_state
+from src.utils.date_utils import format_date
 
 
 def jobsreet_job_card(job: JobStreetJobDetails, on_refresh):
@@ -34,6 +34,21 @@ def jobsreet_job_card(job: JobStreetJobDetails, on_refresh):
                         )
                     ui.label(job.title).classes(
                         "text-sm font-bold text-slate-900 leading-tight"
+                    )
+
+                with ui.row().classes("items-center gap-2 flex-wrap"):
+                    ui.label(
+                        job.posted_relative_time
+                        if job.posted_relative_time
+                        else "Unknown"
+                    ).classes("text-sm text-amber-500 leading-tight")
+                    formatted_posted_at = (
+                        format_date(job.posted_at_utc)
+                        if job.posted_at_utc
+                        else "Unknown"
+                    )
+                    ui.label(f"{formatted_posted_at}").classes(
+                        "text-sm text-green-600 leading-tight"
                     )
 
                 # Company • Location • Type • Salary

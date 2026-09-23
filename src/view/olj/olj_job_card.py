@@ -3,6 +3,7 @@ from nicegui import ui
 from src.db.database import SessionLocal
 from src.olj.db import update_olj_details
 from src.olj.models.olj_job_details import OljJobDetails
+from src.utils.date_utils import calculate_time_difference, format_date
 
 
 def olj_job_card(job: OljJobDetails, on_refresh):
@@ -35,6 +36,20 @@ def olj_job_card(job: OljJobDetails, on_refresh):
                         "text-sm font-bold text-slate-900 leading-tight"
                     )
 
+                with ui.row().classes("items-center gap-2 flex-wrap"):
+                    time_diff = calculate_time_difference(job.posted_at_utc)
+                    ui.label(time_diff if time_diff else "Unknown").classes(
+                        "text-sm text-amber-500 leading-tight"
+                    )
+                    formatted_posted_at = (
+                        format_date(job.posted_at_utc)
+                        if job.posted_at_utc
+                        else "Unknown"
+                    )
+                    ui.label(f"{formatted_posted_at}").classes(
+                        "text-sm text-green-600 leading-tight"
+                    )
+
                 # Company • Location • Type • Salary
                 with ui.row().classes(
                     "items-center gap-1.5 text-xs text-slate-500 flex-wrap"
@@ -42,8 +57,6 @@ def olj_job_card(job: OljJobDetails, on_refresh):
                     ui.label(
                         job.company_name if job.company_name else "Unknown"
                     ).classes("font-semibold text-slate-700")
-                    ui.label("•")
-                    ui.label(job.location if job.location else "Unknown")
                     ui.label("•")
                     ui.label(job.work_type if job.work_type else "Unknown")
                     ui.label("•")

@@ -3,7 +3,7 @@ from nicegui import ui
 from src.db.database import SessionLocal
 from src.indeed.db import update_indeed_details
 from src.indeed.models.indeed_job_details import IndeedJobDetails
-from src.view.global_state import global_state
+from src.utils.date_utils import format_date
 
 
 def indeed_job_card(job: IndeedJobDetails, on_refresh):
@@ -35,6 +35,21 @@ def indeed_job_card(job: IndeedJobDetails, on_refresh):
                         "text-sm font-bold text-slate-900 leading-tight"
                     )
 
+                with ui.row().classes("items-center gap-2 flex-wrap"):
+                    ui.label(
+                        job.posted_relative_time
+                        if job.posted_relative_time
+                        else "Unknown"
+                    ).classes("text-sm text-amber-500 leading-tight")
+                    formatted_posted_at = (
+                        format_date(job.posted_at_utc)
+                        if job.posted_at_utc
+                        else "Unknown"
+                    )
+                    ui.label(f"{formatted_posted_at}").classes(
+                        "text-sm text-green-600 leading-tight"
+                    )
+
                 # Company • Location • Type • Salary
                 with ui.row().classes(
                     "items-center gap-1.5 text-xs text-slate-500 flex-wrap"
@@ -44,14 +59,16 @@ def indeed_job_card(job: IndeedJobDetails, on_refresh):
                     ).classes("font-semibold text-slate-700")
                     ui.label("•")
                     ui.label(job.location if job.location else "Unknown")
-                    ui.label("•")
-                    ui.label(job.work_type if job.work_type else "Unknown")
-                    ui.label("•")
-                    ui.label(
-                        job.formatted_salary if job.formatted_salary else "Unknown"
-                    ).classes(
-                        "font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-1.5 py-0.2 rounded text-[11px]"
+                    salary = (
+                        f"{job.salary_min} - {job.salary_max} {job.salary_period}"
+                        if job.salary_min and job.salary_max and job.salary_period
+                        else "Unknown"
                     )
+                    if salary != "Unknown":
+                        ui.label("•")
+                        ui.label(salary).classes(
+                            "font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-1.5 py-0.2 rounded text-[11px]"
+                        )
                     ui.label("•")
                     match job.is_urgently_hiring:
                         case True:
