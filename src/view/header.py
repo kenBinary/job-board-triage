@@ -2,9 +2,11 @@ from nicegui import ui
 
 from src.indeed.db import GetIndeedDetailsFilters
 from src.jobstreet.db import GetJobstreetDetailsFilters
+from src.olj.db import GetOljDetailsFilters
 from src.view.global_state import global_state
 from src.view.indeed.indeed_state import indeed_state
 from src.view.jobstreet.jobstreet_state import jobstreet_state
+from src.view.olj.olj_state import olj_state
 
 
 @ui.refreshable
@@ -33,6 +35,8 @@ def header_view(on_job_board_change):
                         jobstreet_state.update_all_jobs_as_seen()
                     case "Indeed":
                         indeed_state.update_all_jobs_as_seen()
+                    case "OLJ":
+                        olj_state.update_all_jobs_as_seen()
                 on_job_board_change()
 
             ui.button("Mark all as seen", on_click=handle_mark_all_as_seen).props(
@@ -53,8 +57,12 @@ def header_view(on_job_board_change):
                 if e.value == "Indeed":
                     filters = GetIndeedDetailsFilters(is_new=global_state.show_new_only)
                     indeed_state.get_jobs(filters=filters)
+                if e.value == "OLJ":
+                    filters = GetOljDetailsFilters(is_new=global_state.show_new_only)
+                    olj_state.get_jobs(filters=filters)
                 on_job_board_change()
 
             ui.toggle(
-                options=["Jobstreet", "Indeed"], on_change=handle_job_board_change
+                options=["Jobstreet", "Indeed", "OLJ"],
+                on_change=handle_job_board_change,
             ).bind_value(global_state, "job_board")

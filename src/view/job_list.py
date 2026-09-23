@@ -2,11 +2,14 @@ from nicegui import ui
 
 from src.indeed.db import GetIndeedDetailsFilters
 from src.jobstreet.db import GetJobstreetDetailsFilters
+from src.olj.db import GetOljDetailsFilters
 from src.view.global_state import global_state
 from src.view.indeed.indeed_job_card import indeed_job_card
 from src.view.indeed.indeed_state import indeed_state
 from src.view.jobstreet.jobstreet_job_card import jobsreet_job_card
 from src.view.jobstreet.jobstreet_state import jobstreet_state
+from src.view.olj.olj_job_card import olj_job_card
+from src.view.olj.olj_state import olj_state
 
 
 def render_pagination_bar(
@@ -33,6 +36,12 @@ def render_pagination_bar(
                 indeed_state.get_jobs(
                     filters=filters, skip=(page - 1) * page_size, limit=page_size
                 )
+            case "OLJ":
+                filters = GetOljDetailsFilters(is_new=global_state.show_new_only)
+                page = max(1, min(page, total_pages))
+                olj_state.get_jobs(
+                    filters=filters, skip=(page - 1) * page_size, limit=page_size
+                )
         on_page_change()
 
     def handle_page_size_change(size: int):
@@ -44,6 +53,9 @@ def render_pagination_bar(
             case "Indeed":
                 filters = GetIndeedDetailsFilters(is_new=global_state.show_new_only)
                 indeed_state.get_jobs(filters=filters, skip=0, limit=size)
+            case "OLJ":
+                filters = GetOljDetailsFilters(is_new=global_state.show_new_only)
+                olj_state.get_jobs(filters=filters, skip=0, limit=size)
         on_page_change()
 
     def handle_goto_page(page: int):
@@ -146,6 +158,8 @@ def job_list_view(on_status_change, on_page_change):
             jobCount = jobstreet_state.total_count
         case "Indeed":
             jobCount = indeed_state.total_count
+        case "OLJ":
+            jobCount = olj_state.total_count
 
     if jobCount == 0:
         with ui.card().classes(
@@ -175,4 +189,14 @@ def job_list_view(on_status_change, on_page_change):
                     page_size=indeed_state.paginated_jobs.page_size,
                     total_count=indeed_state.paginated_jobs.total,
                     total_pages=indeed_state.paginated_jobs.total_pages,
+                )
+            case "OLJ":
+                for job in olj_state.jobs:
+                    olj_job_card(job, on_refresh=on_status_change)
+                render_pagination_bar(
+                    on_page_change=on_page_change,
+                    current_page=olj_state.paginated_jobs.page,
+                    page_size=olj_state.paginated_jobs.page_size,
+                    total_count=olj_state.paginated_jobs.total,
+                    total_pages=olj_state.paginated_jobs.total_pages,
                 )
