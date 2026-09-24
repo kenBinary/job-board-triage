@@ -2,11 +2,13 @@ from nicegui import ui
 
 from src.indeed.db import GetIndeedDetailsFilters
 from src.jobstreet.db import GetJobstreetDetailsFilters
+from src.kalibrr.db import GetKalibrrDetailsFilters
 from src.mynimo.db import GetMynimoDetailsFilters
 from src.olj.db import GetOljDetailsFilters
 from src.view.global_state import global_state
 from src.view.indeed.indeed_state import indeed_state
 from src.view.jobstreet.jobstreet_state import jobstreet_state
+from src.view.kalibrr.kalibrr_state import kalibrr_state
 from src.view.mynimo.mynimo_state import mynimo_state
 from src.view.olj.olj_state import olj_state
 
@@ -41,6 +43,8 @@ def header_view(on_job_board_change):
                         olj_state.update_all_jobs_as_seen()
                     case "Mynimo":
                         mynimo_state.update_all_jobs_as_seen()
+                    case "Kalibrr":
+                        kalibrr_state.update_all_jobs_as_seen()
                 on_job_board_change()
 
             ui.button("Mark all as seen", on_click=handle_mark_all_as_seen).props(
@@ -67,9 +71,14 @@ def header_view(on_job_board_change):
                 if e.value == "Mynimo":
                     filters = GetMynimoDetailsFilters(is_new=global_state.show_new_only)
                     mynimo_state.get_jobs(filters=filters)
+                if e.value == "Kalibrr":
+                    filters = GetKalibrrDetailsFilters(
+                        is_new=global_state.show_new_only
+                    )
+                    kalibrr_state.get_jobs(filters=filters)
                 on_job_board_change()
 
             ui.toggle(
-                options=["Jobstreet", "Indeed", "OLJ", "Mynimo"],
+                options=["Jobstreet", "Indeed", "OLJ", "Mynimo", "Kalibrr"],
                 on_change=handle_job_board_change,
             ).bind_value(global_state, "job_board")

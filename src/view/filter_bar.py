@@ -2,11 +2,13 @@ from nicegui import ui
 
 from src.indeed.db import GetIndeedDetailsFilters
 from src.jobstreet.db import GetJobstreetDetailsFilters
+from src.kalibrr.db import GetKalibrrDetailsFilters
 from src.mynimo.db import GetMynimoDetailsFilters
 from src.olj.db import GetOljDetailsFilters
 from src.view.global_state import global_state
 from src.view.indeed.indeed_state import indeed_state
 from src.view.jobstreet.jobstreet_state import jobstreet_state
+from src.view.kalibrr.kalibrr_state import kalibrr_state
 from src.view.mynimo.mynimo_state import mynimo_state
 from src.view.olj.olj_state import olj_state
 
@@ -26,6 +28,9 @@ def filter_bar_view(on_filter_changed):
             case "Mynimo":
                 filters = GetMynimoDetailsFilters(is_new=e.value)
                 mynimo_state.get_jobs(filters=filters)
+            case "Kalibrr":
+                filters = GetKalibrrDetailsFilters(is_new=e.value)
+                kalibrr_state.get_jobs(filters=filters)
         global_state.show_new_only = e.value
 
         on_filter_changed()

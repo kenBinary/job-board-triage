@@ -2,6 +2,7 @@ from nicegui import ui
 
 from src.indeed.db import GetIndeedDetailsFilters
 from src.jobstreet.db import GetJobstreetDetailsFilters
+from src.kalibrr.db import GetKalibrrDetailsFilters
 from src.mynimo.db import GetMynimoDetailsFilters
 from src.olj.db import GetOljDetailsFilters
 from src.view.global_state import global_state
@@ -9,6 +10,8 @@ from src.view.indeed.indeed_job_card import indeed_job_card
 from src.view.indeed.indeed_state import indeed_state
 from src.view.jobstreet.jobstreet_job_card import jobsreet_job_card
 from src.view.jobstreet.jobstreet_state import jobstreet_state
+from src.view.kalibrr.kalibrr_job_card import kalibrr_job_card
+from src.view.kalibrr.kalibrr_state import kalibrr_state
 from src.view.mynimo.mynimo_job_card import mynimo_job_card
 from src.view.mynimo.mynimo_state import mynimo_state
 from src.view.olj.olj_job_card import olj_job_card
@@ -51,6 +54,12 @@ def render_pagination_bar(
                 mynimo_state.get_jobs(
                     filters=filters, skip=(page - 1) * page_size, limit=page_size
                 )
+            case "Kalibrr":
+                filters = GetKalibrrDetailsFilters(is_new=global_state.show_new_only)
+                page = max(1, min(page, total_pages))
+                kalibrr_state.get_jobs(
+                    filters=filters, skip=(page - 1) * page_size, limit=page_size
+                )
         on_page_change()
 
     def handle_page_size_change(size: int):
@@ -68,6 +77,9 @@ def render_pagination_bar(
             case "Mynimo":
                 filters = GetMynimoDetailsFilters(is_new=global_state.show_new_only)
                 mynimo_state.get_jobs(filters=filters, skip=0, limit=size)
+            case "Kalibrr":
+                filters = GetKalibrrDetailsFilters(is_new=global_state.show_new_only)
+                kalibrr_state.get_jobs(filters=filters, skip=0, limit=size)
         on_page_change()
 
     def handle_goto_page(page: int):
@@ -174,6 +186,8 @@ def job_list_view(on_status_change, on_page_change):
             jobCount = olj_state.total_count
         case "Mynimo":
             jobCount = mynimo_state.total_count
+        case "Kalibrr":
+            jobCount = kalibrr_state.total_count
 
     if jobCount == 0:
         with ui.card().classes(
@@ -223,4 +237,14 @@ def job_list_view(on_status_change, on_page_change):
                     page_size=mynimo_state.paginated_jobs.page_size,
                     total_count=mynimo_state.paginated_jobs.total,
                     total_pages=mynimo_state.paginated_jobs.total_pages,
+                )
+            case "Kalibrr":
+                for job in kalibrr_state.jobs:
+                    kalibrr_job_card(job, on_refresh=on_status_change)
+                render_pagination_bar(
+                    on_page_change=on_page_change,
+                    current_page=kalibrr_state.paginated_jobs.page,
+                    page_size=kalibrr_state.paginated_jobs.page_size,
+                    total_count=kalibrr_state.paginated_jobs.total,
+                    total_pages=kalibrr_state.paginated_jobs.total_pages,
                 )
