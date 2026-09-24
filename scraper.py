@@ -5,6 +5,7 @@ import typer
 from src.db.database import BaseEntity, engine
 from src.indeed.indeed_scraper import scrape_indeed
 from src.jobstreet.jobstreet_scraper import scrape_jobstreet
+from src.mynimo.mynimo_scraper import scrape_mynimo
 from src.olj.olj_scraper import scrape_olj
 
 app = typer.Typer()
@@ -13,6 +14,7 @@ SCRAPERS = {
     "jobstreet": scrape_jobstreet,
     "indeed": scrape_indeed,
     "olj": scrape_olj,
+    "mynimo": scrape_mynimo,
 }
 
 
