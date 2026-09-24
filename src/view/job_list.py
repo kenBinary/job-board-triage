@@ -99,7 +99,7 @@ def render_pagination_bar(
             with ui.row().classes("items-center gap-2"):
                 ui.label("Show:").classes("text-slate-500 text-sm")
                 ui.select(
-                    options=[10, 25, 50, 100],
+                    options=[25, 50, 100],
                     value=page_size,
                     on_change=lambda e: handle_page_size_change(e.value),
                 ).props("dense outlined options-dense").classes("w-20 text-xs").style(

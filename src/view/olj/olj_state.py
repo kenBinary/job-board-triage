@@ -17,7 +17,7 @@ class OljState:
     show_new_only: bool
 
     def __init__(self):
-        self.paginated_jobs = PaginatedList(items=[], total=0, page=1, page_size=10)
+        self.paginated_jobs = PaginatedList(items=[], total=0, page=1, page_size=25)
         self.jobs = []
         self.search_query = ""
         self.show_new_only = True
