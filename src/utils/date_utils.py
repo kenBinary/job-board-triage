@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 def format_date(date: str) -> str:
@@ -17,7 +17,9 @@ def calculate_time_difference(date: str | None) -> str:
 
     try:
         dt = datetime.fromisoformat(date.replace("Z", "+00:00"))
-        current_date = datetime.now()
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        current_date = datetime.now(timezone.utc)
         time_diff = current_date - dt
         days = time_diff.days
         hours, remainder = divmod(time_diff.seconds, 3600)
