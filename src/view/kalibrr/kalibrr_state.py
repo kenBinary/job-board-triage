@@ -26,7 +26,7 @@ class KalibrrState:
         self,
         filters: Optional[GetKalibrrDetailsFilters] = None,
         skip: int = 0,
-        limit: int = 10,
+        limit: int = 25,
     ) -> PaginatedList[KalibrrJobDetails]:
         with SessionLocal() as db:
             paginated_jobs = get_kalibrr_job_details_list(

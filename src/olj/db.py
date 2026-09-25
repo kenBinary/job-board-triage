@@ -64,7 +64,7 @@ def get_olj_job_details_list(
     db: Session,
     filters: Optional[GetOljDetailsFilters] = None,
     skip: int = 0,
-    limit: int = 10,
+    limit: int = 25,
 ) -> PaginatedList[OljJobDetails]:
     stmt = select(OljJobDetails)
 

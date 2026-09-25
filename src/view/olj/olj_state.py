@@ -26,7 +26,7 @@ class OljState:
         self,
         filters: Optional[GetOljDetailsFilters] = None,
         skip: int = 0,
-        limit: int = 10,
+        limit: int = 25,
     ) -> PaginatedList[OljJobDetails]:
         with SessionLocal() as db:
             paginated_jobs = get_olj_job_details_list(

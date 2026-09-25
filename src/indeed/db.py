@@ -93,7 +93,7 @@ def get_indeed_job_details_list(
     db: Session,
     filters: Optional[GetIndeedDetailsFilters] = None,
     skip: int = 0,
-    limit: int = 10,
+    limit: int = 25,
 ) -> PaginatedList[IndeedJobDetails]:
     stmt = select(IndeedJobDetails)
 

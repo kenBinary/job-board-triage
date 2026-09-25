@@ -26,7 +26,7 @@ class IndeedState:
         self,
         filters: Optional[GetIndeedDetailsFilters] = None,
         skip: int = 0,
-        limit: int = 10,
+        limit: int = 25,
     ) -> PaginatedList[IndeedJobDetails]:
         with SessionLocal() as db:
             paginated_jobs = get_indeed_job_details_list(

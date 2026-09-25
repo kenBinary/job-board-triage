@@ -84,7 +84,7 @@ def get_mynimo_job_details_list(
     db: Session,
     filters: Optional[GetMynimoDetailsFilters] = None,
     skip: int = 0,
-    limit: int = 10,
+    limit: int = 25,
 ) -> PaginatedList[MynimoJobDetails]:
     stmt = select(MynimoJobDetails)
 

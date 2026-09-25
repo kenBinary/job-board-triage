@@ -26,7 +26,7 @@ class MynimoState:
         self,
         filters: Optional[GetMynimoDetailsFilters] = None,
         skip: int = 0,
-        limit: int = 10,
+        limit: int = 25,
     ) -> PaginatedList[MynimoJobDetails]:
         with SessionLocal() as db:
             paginated_jobs = get_mynimo_job_details_list(

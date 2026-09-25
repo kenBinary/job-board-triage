@@ -79,7 +79,7 @@ def get_jobstreet_job_details_list(
     db: Session,
     filters: Optional[GetJobstreetDetailsFilters] = None,
     skip: int = 0,
-    limit: int = 10,
+    limit: int = 25,
 ) -> PaginatedList[JobStreetJobDetails]:
     stmt = select(JobStreetJobDetails)
 
