@@ -1,8 +1,6 @@
 import asyncio
 import math
 import random
-from dataclasses import dataclass, field
-from urllib.parse import urlencode
 
 from sqlalchemy.orm import Session
 
@@ -10,91 +8,76 @@ from src.db.database import SessionLocal
 from src.kalibrr.db import create_kalibrr_details_bulk, get_kalibrr_details_by_job_id
 from src.kalibrr.get_jobs import fetch_jobs
 from src.kalibrr.models.kalibrr_job_details import KalibrrJobDetails
+from src.kalibrr.models.kalibrr_link import KalibrrLink, KalibrrParams
 
-_BASE_URL = "https://www.kalibrr.com/kjs/job_board/search"
-_FIXED_PARAMS = {
-    "sort_direction": "desc",
-    "sort_field": "activation_date",
-}
-
-
-@dataclass
-class KalibrrLink:
-    """Represents a single Kalibrr search target.
-
-    ``text``, ``offset``, ``country``, and ``location`` can be configured per
-    search target. Other query parameters are fixed by the platform.
-    """
-
-    text: str | None = field(default=None)
-    offset: int = field(default=0)
-    limit: int = field(default=15)
-    max_pages: int = field(default=2)
-    country: str | None = field(default=None)
-    location: str | None = field(default=None)
-    is_work_from_home: bool = field(default=False)
-
-    def get_page_url(self, page_index: int) -> str:
-        """Build the full API URL for a given page index (0-based)."""
-        current_offset = self.offset + (page_index * self.limit)
-        params = {
-            "limit": str(self.limit),
-            "offset": str(current_offset),
-            **_FIXED_PARAMS,
-        }
-
-        if self.is_work_from_home:
-            params["is_work_from_home"] = "true"
-        if self.text is not None:
-            params["text"] = self.text
-        if self.country is not None:
-            params["country"] = self.country
-        if self.location is not None:
-            params["location"] = self.location
-
-        return f"{_BASE_URL}?{urlencode(params)}"
-
+BASE_URL = "https://www.kalibrr.com/kjs/job_board/search"
 
 LINKS: list[KalibrrLink] = [
     # KalibrrLink(
-    #     text="developer", max_pages=2, is_work_from_home=True, country="Philippines"
+    #     max_page=2,
+    #     base_url=BASE_URL,
+    #     params=KalibrrParams(text="developer", is_work_from_home=True, country="Philippines"),
     # ),
     # KalibrrLink(
-    #     text="software", max_pages=2, is_work_from_home=True, country="Philippines"
+    #     max_page=2,
+    #     base_url=BASE_URL,
+    #     params=KalibrrParams(text="software", is_work_from_home=True, country="Philippines"),
     # ),
     # KalibrrLink(
-    #     text="engineer", max_pages=2, is_work_from_home=True, country="Philippines"
+    #     max_page=2,
+    #     base_url=BASE_URL,
+    #     params=KalibrrParams(text="engineer", is_work_from_home=True, country="Philippines"),
     # ),
-    # KalibrrLink(text="web", max_pages=2, is_work_from_home=True, country="Philippines"),
     # KalibrrLink(
-    #     text=".net", max_pages=2, is_work_from_home=True, country="Philippines"
+    #     max_page=2,
+    #     base_url=BASE_URL,
+    #     params=KalibrrParams(text="web", is_work_from_home=True, country="Philippines"),
     # ),
-    KalibrrLink(max_pages=2, location="Cagayan de Oro"),
-    KalibrrLink(max_pages=2, location="Davao City"),
-    KalibrrLink(max_pages=2, location="Cebu City"),
+    # KalibrrLink(
+    #     max_page=2,
+    #     base_url=BASE_URL,
+    #     params=KalibrrParams(text=".net", is_work_from_home=True, country="Philippines"),
+    # ),
+    KalibrrLink(
+        max_page=2,
+        base_url=BASE_URL,
+        params=KalibrrParams(location="Cagayan de Oro"),
+    ),
+    KalibrrLink(
+        max_page=2,
+        base_url=BASE_URL,
+        params=KalibrrParams(location="Davao City"),
+    ),
+    KalibrrLink(
+        max_page=2,
+        base_url=BASE_URL,
+        params=KalibrrParams(location="Cebu City"),
+    ),
 ]
 
 
 async def scrape_kalibrr_link(db: Session, link_target: KalibrrLink) -> None:
-    """Scrape a single Kalibrr search target across up to max_pages pages."""
-    print(f"Scraping Kalibrr — text: '{link_target.text}'")
+    """Scrape a single Kalibrr search target across up to max_page pages."""
+    print(f"Scraping Kalibrr — text: '{link_target.params.text}'")
 
-    for page_index in range(link_target.max_pages):
-        page_url = link_target.get_page_url(page_index)
-        current_offset = link_target.offset + (page_index * link_target.limit)
-        print(f"  Fetching page {page_index + 1} (offset={current_offset}): {page_url}")
+    for current_page in range(1, link_target.max_page + 1):
+        page_url = link_target.get_next_page(current_page)
+        current_offset = link_target.params.offset + (
+            (current_page - 1) * link_target.params.limit
+        )
+        print(f"  Fetching page {current_page} (offset={current_offset}): {page_url}")
 
         try:
             response = await fetch_jobs(page_url)
 
             total = response.count
             max_reachable_pages = (
-                math.ceil(total / link_target.limit) if total > 0 else 0
+                math.ceil(total / link_target.params.limit) if total > 0 else 0
             )
 
             print(
                 f"  Total jobs available: {total} | "
-                f"Page {page_index + 1} of {max_reachable_pages}"
+                f"Page {current_page} of {max_reachable_pages}"
             )
 
             if not response.jobs:
@@ -140,21 +123,21 @@ async def scrape_kalibrr_link(db: Session, link_target: KalibrrLink) -> None:
 
             if new_jobs:
                 create_kalibrr_details_bulk(db, new_jobs)
-                print(f"  Saved {len(new_jobs)} new job(s) from page {page_index + 1}.")
+                print(f"  Saved {len(new_jobs)} new job(s) from page {current_page}.")
 
-            if page_index + 1 >= max_reachable_pages:
+            if current_page >= max_reachable_pages:
                 print(
                     f"  Reached last available page ({max_reachable_pages}). Stopping."
                 )
                 break
 
-            if page_index < link_target.max_pages - 1:
+            if current_page < link_target.max_page:
                 delay = random.uniform(5.0, 10.0)
                 print(f"  Sleeping {delay:.1f}s before next page...")
                 await asyncio.sleep(delay)
 
         except Exception as e:
-            print(f"  Error on page {page_index + 1} for '{link_target.text}': {e}")
+            print(f"  Error on page {current_page} for '{link_target.params.text}': {e}")
             break
 
 

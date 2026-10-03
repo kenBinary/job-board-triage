@@ -1,0 +1,93 @@
+from dataclasses import dataclass, field
+from typing import List, Literal, Optional
+from urllib.parse import urlencode
+
+from src.jobstreet.get_jobs import JobSearchParams, WorkArrangementEnum
+from src.common.models.base_link_model import BaseLinkModel
+
+
+@dataclass
+class JobStreetParams:
+    """Parameters used to configure JobStreet search queries."""
+
+    text: str = ""
+    where: Optional[List[str]] = None
+    distance_kms: int = 50
+    sort: Literal["listedAt", "score"] = "listedAt"
+    listed_at: Literal[None, "1d", "3d", "7d", "14d", "30d"] = "7d"
+    work_arrangement_ids: Optional[List[WorkArrangementEnum]] = None
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+    work_type_ids: Optional[List[str]] = None
+    category_ids: Optional[List[str]] = None
+    organisation_id: Optional[str] = None
+    organisation_name: Optional[str] = None
+    page_size: int = 10
+    country: str = "PH"
+    locale: str = "en-PH"
+    zone: str = "asia-6"
+    timezone: str = "Asia/Manila"
+    auth_token: Optional[str] = None
+
+    def to_query_string(self, page: int = 1) -> str:
+        data = {
+            "text": self.text,
+            "where": ",".join(self.where) if self.where else "",
+            "page": page,
+            "pageSize": self.page_size,
+            "sort": self.sort,
+            "listedAt": self.listed_at,
+        }
+        filtered = {k: v for k, v in data.items() if v}
+        return urlencode(filtered)
+
+    def to_job_search_params(self, page: int = 1) -> JobSearchParams:
+        """Converts JobStreetParams into JobSearchParams required by fetch_jobs."""
+        return JobSearchParams(
+            text=self.text,
+            where=self.where,
+            distance_kms=self.distance_kms,
+            sort=self.sort,
+            listed_at=self.listed_at,
+            work_arrangement_ids=self.work_arrangement_ids,
+            salary_min=self.salary_min,
+            salary_max=self.salary_max,
+            work_type_ids=self.work_type_ids,
+            category_ids=self.category_ids,
+            organisation_id=self.organisation_id,
+            organisation_name=self.organisation_name,
+            page=page,
+            page_size=self.page_size,
+            country=self.country,
+            locale=self.locale,
+            zone=self.zone,
+            timezone=self.timezone,
+            auth_token=self.auth_token,
+        )
+
+
+@dataclass
+class JobStreetLink(BaseLinkModel):
+    params: JobStreetParams = field(default_factory=JobStreetParams)
+
+    def get_next_page(self, page: int) -> str:
+        if page < 1:
+            raise ValueError("Page index must be 1 or greater.")
+
+        if page > self.max_page:
+            raise ValueError(
+                f"Requested page {page} exceeds max_pages ({self.max_page})."
+            )
+
+        return f"{self.base_url}?{self.params.to_query_string(page)}"
+
+    def get_search_params(self, page: int) -> JobSearchParams:
+        if page < 1:
+            raise ValueError("Page index must be 1 or greater.")
+
+        if page > self.max_page:
+            raise ValueError(
+                f"Requested page {page} exceeds max_pages ({self.max_page})."
+            )
+
+        return self.params.to_job_search_params(page)

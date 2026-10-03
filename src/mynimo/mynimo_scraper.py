@@ -1,7 +1,5 @@
 import asyncio
 import random
-from dataclasses import dataclass, field
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy.orm import Session
 
@@ -9,52 +7,41 @@ from src.db.database import SessionLocal
 from src.mynimo.db import create_mynimo_details_bulk, get_mynimo_details_by_job_id
 from src.mynimo.get_jobs import fetch_jobs
 from src.mynimo.models.mynimo_job_details import MynimoJobDetails
+from src.mynimo.models.mynimo_link import MynimoLink, MynimoParams
 
-
-@dataclass
-class MynimoLink:
-    """Represents a single Mynimo search target with its own max_pages setting."""
-
-    url: str
-    max_pages: int = field(default=2)
-
-    def get_page_url(self, page: int) -> str:
-        parsed = urlsplit(self.url)
-        params = parse_qsl(parsed.query, keep_blank_values=True)
-        params = [(key, value) for key, value in params if key.lower() != "page"]
-        params.append(("page", str(page)))
-
-        query = urlencode(params)
-        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, query, ""))
-
+BASE_URL = "https://www.mynimo.com/api/jobs/local/browse"
 
 LINKS: list[MynimoLink] = [
     MynimoLink(
-        url="https://www.mynimo.com/api/jobs/local/browse?path=%2Fcebu-jobs&page=1",
-        max_pages=2,
+        max_page=2,
+        base_url=BASE_URL,
+        params=MynimoParams(path="/cebu-jobs"),
     ),
     MynimoLink(
-        url="https://www.mynimo.com/api/jobs/local/browse?path=%2Fcdo-jobs&page=1",
-        max_pages=2,
+        max_page=2,
+        base_url=BASE_URL,
+        params=MynimoParams(path="/cdo-jobs"),
     ),
     MynimoLink(
-        url="https://www.mynimo.com/api/jobs/local/browse?path=%2Fdavao-jobs&page=1",
-        max_pages=2,
+        max_page=2,
+        base_url=BASE_URL,
+        params=MynimoParams(path="/davao-jobs"),
     ),
     MynimoLink(
-        url="https://www.mynimo.com/api/jobs/local/browse?path=%2Fhome-based-jobs&page=1",
-        max_pages=2,
+        max_page=2,
+        base_url=BASE_URL,
+        params=MynimoParams(path="/home-based-jobs"),
     ),
 ]
 
 
 async def scrape_mynimo_link(db: Session, link_target: MynimoLink) -> None:
-    """Scrape a single Mynimo search target across up to max_pages pages."""
-    print(f"Scraping Mynimo link: {link_target.url}")
+    """Scrape a single Mynimo search target across up to max_page pages."""
+    print(f"Scraping Mynimo path: {link_target.params.path}")
 
-    for page_num in range(1, link_target.max_pages + 1):
-        page_url = link_target.get_page_url(page_num)
-        print(f"  Fetching page {page_num}: {page_url}")
+    for current_page in range(1, link_target.max_page + 1):
+        page_url = link_target.get_next_page(current_page)
+        print(f"  Fetching page {current_page}: {page_url}")
 
         try:
             response = await fetch_jobs(page_url)
@@ -62,7 +49,7 @@ async def scrape_mynimo_link(db: Session, link_target: MynimoLink) -> None:
 
             last_page = pagination.last_page
             total = pagination.total
-            print(f"  Total jobs: {total} | Page {page_num} of {last_page}")
+            print(f"  Total jobs: {total} | Page {current_page} of {last_page}")
 
             new_jobs: list[MynimoJobDetails] = []
 
@@ -109,19 +96,19 @@ async def scrape_mynimo_link(db: Session, link_target: MynimoLink) -> None:
 
             if new_jobs:
                 create_mynimo_details_bulk(db, new_jobs)
-                print(f"  Saved {len(new_jobs)} new job(s) from page {page_num}.")
+                print(f"  Saved {len(new_jobs)} new job(s) from page {current_page}.")
 
-            if page_num >= last_page:
+            if current_page >= last_page:
                 print(f"  Reached last page ({last_page}). Stopping pagination.")
                 break
 
-            if page_num < link_target.max_pages:
+            if current_page < link_target.max_page:
                 delay = random.uniform(4.0, 10.0)
                 print(f"  Sleeping {delay:.1f}s before next page...")
                 await asyncio.sleep(delay)
 
         except Exception as e:
-            print(f"  Error on page {page_num} of {link_target.url}: {e}")
+            print(f"  Error on page {current_page} of {page_url}: {e}")
             break
 
 

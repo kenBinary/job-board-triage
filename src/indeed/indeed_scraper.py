@@ -1,45 +1,120 @@
 import asyncio
-from dataclasses import dataclass
+import random
 from typing import List
-
+from playwright.async_api import BrowserContext
 from camoufox import AsyncCamoufox
 
 from src.db.database import SessionLocal
 from src.indeed.db import create_indeed_details_bulk, get_indeed_details_by_job_id
 from src.indeed.get_jobs import fetch_job
 from src.indeed.models.indeed_job_details import IndeedJobDetails
+from src.indeed.models.indeed_link import IndeedLink, IndeedParams
+
+BASE_URL = "https://ph.indeed.com/jobs"
 
 
-@dataclass
-class IndeedLinks:
-    max_page: int
-    base_url: str
-
-    def get_next_page(self, page: int) -> str:
-        return f"{self.base_url}&start={page * 10}"
-
-
-raw_urls = [
-    "https://ph.indeed.com/jobs?q=developer&l=Philippines&sort=date&fromage=7&sc=0kf%3Aattr%28DSQF7%29%3B",
-    "https://ph.indeed.com/jobs?q=software&l=Philippines&sort=date&fromage=7&sc=0kf%3Aattr%28DSQF7%29%3B",
-    "https://ph.indeed.com/jobs?q=c%23&l=Cebu+City%2C+Cebu&sort=date&fromage=7&radius=25",
-    "https://ph.indeed.com/jobs?q=asp.net&l=Cebu+City%2C+Cebu&fromage=7&radius=25&sort=date",
-    "https://ph.indeed.com/jobs?q=engineer&l=Philippines&sort=date&fromage=7&sc=0kf%3Aattr%28DSQF7%29%3B",
-    "https://ph.indeed.com/jobs?q=angular&l=Cebu&fromage=7&radius=25&sort=date",
-    "https://ph.indeed.com/jobs?q=react&l=Cebu&fromage=7&radius=25&sort=date",
-    "https://ph.indeed.com/jobs?q=engineer&l=Cebu&fromage=7&radius=25&sort=date",
-    "https://ph.indeed.com/jobs?q=developer&l=Cebu&sort=date&fromage=7&radius=25",
-    "https://ph.indeed.com/jobs?q=software&l=Cebu&sort=date&fromage=7&radius=25",
-    "https://ph.indeed.com/jobs?q=&l=Cagayan+de+Oro+City%2C+Misamis+Oriental&sort=date&fromage=7&radius=25",
+links: List[IndeedLink] = [
+    IndeedLink(
+        max_page=2,
+        base_url=BASE_URL,
+        params=IndeedParams(
+            q="developer",
+            l="Philippines",
+            sort="date",
+            fromage=7,
+            sc="0kf:attr(DSQF7);",
+            radius=None,
+        ),
+    ),
+    IndeedLink(
+        max_page=2,
+        base_url=BASE_URL,
+        params=IndeedParams(
+            q="software",
+            l="Philippines",
+            sort="date",
+            fromage=7,
+            sc="0kf:attr(DSQF7);",
+            radius=None,
+        ),
+    ),
+    IndeedLink(
+        max_page=2,
+        base_url=BASE_URL,
+        params=IndeedParams(
+            q="c#", l="Cebu City, Cebu", sort="date", fromage=7, radius=25, sc=None
+        ),
+    ),
+    IndeedLink(
+        max_page=2,
+        base_url=BASE_URL,
+        params=IndeedParams(
+            q="asp.net", l="Cebu City, Cebu", sort="date", fromage=7, radius=25, sc=None
+        ),
+    ),
+    IndeedLink(
+        max_page=2,
+        base_url=BASE_URL,
+        params=IndeedParams(
+            q="engineer",
+            l="Philippines",
+            sort="date",
+            fromage=7,
+            sc="0kf:attr(DSQF7);",
+            radius=None,
+        ),
+    ),
+    IndeedLink(
+        max_page=2,
+        base_url=BASE_URL,
+        params=IndeedParams(
+            q="angular", l="Cebu", sort="date", fromage=7, radius=25, sc=None
+        ),
+    ),
+    IndeedLink(
+        max_page=2,
+        base_url=BASE_URL,
+        params=IndeedParams(
+            q="react", l="Cebu", sort="date", fromage=7, radius=25, sc=None
+        ),
+    ),
+    IndeedLink(
+        max_page=2,
+        base_url=BASE_URL,
+        params=IndeedParams(
+            q="engineer", l="Cebu", sort="date", fromage=7, radius=25, sc=None
+        ),
+    ),
+    IndeedLink(
+        max_page=2,
+        base_url=BASE_URL,
+        params=IndeedParams(
+            q="developer", l="Cebu", sort="date", fromage=7, radius=25, sc=None
+        ),
+    ),
+    IndeedLink(
+        max_page=2,
+        base_url=BASE_URL,
+        params=IndeedParams(
+            q="software", l="Cebu", sort="date", fromage=7, radius=25, sc=None
+        ),
+    ),
+    IndeedLink(
+        max_page=2,
+        base_url=BASE_URL,
+        params=IndeedParams(
+            q=None,
+            l="Cagayan de Oro City, Misamis Oriental",
+            sort="date",
+            fromage=7,
+            radius=25,
+            sc=None,
+        ),
+    ),
 ]
-
-links: List[IndeedLinks] = [IndeedLinks(max_page=2, base_url=url) for url in raw_urls]
-
 
 PROFILE_DIR = "./camoufox_profile"
 SKIPPED_JOBS_THRESHOLD = 10
-
-from playwright.async_api import BrowserContext
 
 
 async def scrape_indeed() -> None:
@@ -57,7 +132,7 @@ async def scrape_indeed() -> None:
                 for link in links:
                     try:
                         consecutive_skipped = 0
-                        for current_page in range(link.max_page):
+                        for current_page in range(1, link.max_page + 1):
                             if consecutive_skipped >= SKIPPED_JOBS_THRESHOLD:
                                 print(
                                     f"Skipped jobs threshold of {SKIPPED_JOBS_THRESHOLD} reached. Stopping scraping for this link."
@@ -116,10 +191,12 @@ async def scrape_indeed() -> None:
                                 )
                             else:
                                 print(f"No job cards found for {current_link}")
+                        await asyncio.sleep(random.uniform(10.0, 20.0))
                     except Exception as e:
                         print(
                             f"Error occurred while scraping link {link.base_url}: {e}"
                         )
+                        await asyncio.sleep(random.uniform(10.0, 20.0))
     except Exception as e:
         print(f"Error occurred while scraping Indeed: {e}")
 
