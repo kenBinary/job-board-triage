@@ -12,11 +12,15 @@ with Camoufox(
 
     # --- Site 1 ---
     page.goto("https://gmail.com/")
-    input("1. Log into Site 1 in the browser window, then press Enter here...")
+    input("1. Log into Gmail in the browser window, then press Enter here...")
 
     # --- Site 2 ---
     page.goto("https://ph.indeed.com/")
-    input("2. Log into Site 2 in the browser window, then press Enter here...")
+    input("2. Log into Indeed in the browser window, then press Enter here...")
 
-    print("Both sessions have been saved into the profile!")
+    # --- Site 3 ---
+    page.goto("https://www.linkedin.com/login")
+    input("3. Log into LinkedIn in the browser window, then press Enter here...")
+
+    print("All sessions have been saved into the profile!")
     print("Session saved successfully!")
