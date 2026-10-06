@@ -1,0 +1,262 @@
+import asyncio
+import random
+from typing import Optional
+from urllib.parse import urlencode
+
+from camoufox import AsyncCamoufox
+from playwright.async_api import BrowserContext, Page
+
+from src.db.database import SessionLocal
+from .db import (
+    create_linkedin_post_details_bulk,
+    get_linkedin_post_by_job_id,
+)
+from .llm_extractor import extract_jobs_from_post
+from .models.linkedin_post_job_details import LinkedInPostJobDetails
+from .utils import extract_linkedin_post_data
+
+PROFILE_DIR = "./camoufox_profile"
+
+BASE_SEARCH_URL = "https://www.linkedin.com/search/results/content/"
+
+SEARCH_KEYWORDS: list[str] = [
+    "#remotejobsph",
+    "#jobsphilippines",
+    "#hiringphilippines",
+]
+
+POST_CLICK_DELAY_MIN: float = 2.0
+POST_CLICK_DELAY_MAX: float = 3.5
+
+CONTROL_MENU_URL_FRAGMENT = "feedUpdateControlMenuRequest"
+
+
+def _build_search_url(keyword: str) -> str:
+    """Construct the LinkedIn content search URL for a given keyword."""
+    params = {
+        "keywords": keyword,
+        "sortBy": '["date_posted"]',
+        "datePosted": '["past-week"]',
+    }
+    return f"{BASE_SEARCH_URL}?{urlencode(params)}"
+
+
+async def _scroll_page(page: Page) -> None:
+    print("  Scrolling feed...")
+    for _ in range(10):
+        await page.evaluate("""() => {
+            const allDivs = document.querySelectorAll('div[id^="expanded"]');
+            if (allDivs.length > 0) {
+                allDivs[allDivs.length - 1].scrollIntoView({ behavior: 'smooth', block: 'end' });
+            }
+        }""")
+
+        await asyncio.sleep(random.uniform(0, 1.5))
+    print("  Scroll complete.")
+
+
+async def _get_image_urls_from_element(page: Page, element_id: str) -> list[str]:
+    """
+    Extract resolved image URLs from a post element, capping quality at 1080w.
+    Looks for img[alt='view image'] elements with srcset or src.
+    """
+    return await page.evaluate(
+        """
+        (elementId) => {
+            const el = document.getElementById(elementId);
+            if (!el) return [];
+
+            const imgs = el.querySelectorAll('img[alt="view image" i]');
+            const results = [];
+
+            for (const img of imgs) {
+                const srcset = img.srcset || img.getAttribute('srcset');
+                if (srcset) {
+                    // Parse srcset: "url 720w, url 1080w, ..."
+                    const candidates = [];
+                    for (const part of srcset.split(',')) {
+                        const tokens = part.trim().split(/\\s+/);
+                        if (tokens.length === 2) {
+                            const url = tokens[0];
+                            const width = parseInt(tokens[1].toLowerCase().replace('w', ''));
+                            if (!isNaN(width)) candidates.push([width, url]);
+                        }
+                    }
+                    if (candidates.length) {
+                        // Prefer 720-1080 range
+                        const inRange = candidates.filter(([w]) => w >= 720 && w <= 1080);
+                        if (inRange.length) {
+                            const best = inRange.reduce((a, b) => a[0] > b[0] ? a : b);
+                            results.push(best[1]);
+                            continue;
+                        }
+                        // Below 720: take the max
+                        const below = candidates.filter(([w]) => w < 720);
+                        if (below.length) {
+                            results.push(below.reduce((a, b) => a[0] > b[0] ? a : b)[1]);
+                            continue;
+                        }
+                        // Above 1080: take the min
+                        const above = candidates.filter(([w]) => w > 1080);
+                        if (above.length) {
+                            results.push(above.reduce((a, b) => a[0] < b[0] ? a : b)[1]);
+                            continue;
+                        }
+                    }
+                }
+                // Fallback to src
+                if (img.src) results.push(img.src);
+            }
+            return results;
+        }
+        """,
+        element_id,
+    )
+
+
+async def _scrape_keyword(page: Page, db, keyword: str) -> None:
+    url = _build_search_url(keyword)
+    print(f"\n{'='*60}")
+    print(f"Keyword: {keyword}")
+    print(f"URL: {url}")
+    print("=" * 60)
+
+    await page.goto(url, wait_until="domcontentloaded")
+    await asyncio.sleep(random.uniform(3.5, 8.0))
+
+    if "authwall" in page.url.lower() or "login" in page.url.lower():
+        input("LinkedIn requires login. Please log in and press Enter to continue...")
+
+    await _scroll_page(page)
+
+    post_elements = await page.query_selector_all('div[id^="expanded"]')
+    print(f"  Found {len(post_elements)} post elements.")
+
+    new_jobs: list[LinkedInPostJobDetails] = []
+
+    for idx, element in enumerate(post_elements):
+        element_id = await element.get_attribute("id")
+        if not element_id:
+            continue
+
+        print(f"\n  [{idx + 1}/{len(post_elements)}] Processing post: #{element_id}")
+
+        post_url: Optional[str] = None
+        share_id: Optional[str] = None
+
+        try:
+            control_btn = await element.query_selector(
+                'button[aria-label*="Open control menu" i]'
+            )
+            if not control_btn:
+                print("    [skip] No control menu button found — skipping.")
+                continue
+
+            async with page.expect_response(
+                lambda r: CONTROL_MENU_URL_FRAGMENT in r.url,
+                timeout=15000,
+            ) as resp_info:
+                await control_btn.click()
+
+            response = await resp_info.value
+            response_body = await response.body()
+            response_text = response_body.decode("utf-8", errors="replace")
+
+            try:
+                post_url, share_id = extract_linkedin_post_data(response_text)
+                print(f"    share_id={share_id}, url={post_url}")
+            except ValueError as e:
+                print(f"    [warn] extract_linkedin_post_data: {e}")
+
+            await asyncio.sleep(random.uniform(0.5, 1.5))
+            await page.keyboard.press("Escape")
+
+        except Exception as e:
+            print(f"    [error] Control menu interception failed: {e}")
+            await page.keyboard.press("Escape")
+
+        if not share_id:
+            print("    [skip] Could not obtain share_id — skipping.")
+            await asyncio.sleep(
+                random.uniform(POST_CLICK_DELAY_MIN, POST_CLICK_DELAY_MAX)
+            )
+            continue
+
+        post_text = await element.evaluate("el => el.textContent") or ""
+        post_text = post_text.strip()
+
+        # TODO: Get Image Base64 directly without downloading
+        image_urls = await _get_image_urls_from_element(page, element_id)
+        print(f"    Images found: {len(image_urls)}")
+
+        try:
+            extraction = await extract_jobs_from_post(post_text, image_urls)
+        except Exception as e:
+            print(f"    [error] LLM extraction failed: {e}")
+            await asyncio.sleep(
+                random.uniform(POST_CLICK_DELAY_MIN, POST_CLICK_DELAY_MAX)
+            )
+            continue
+
+        if not extraction.is_job_post:
+            print("    [skip] LLM determined this is not a job post.")
+            await asyncio.sleep(
+                random.uniform(POST_CLICK_DELAY_MIN, POST_CLICK_DELAY_MAX)
+            )
+            continue
+
+        print(f"    Extracted {len(extraction.jobs)} job(s).")
+
+        for job_idx, job in enumerate(extraction.jobs):
+            job_id = (
+                share_id if len(extraction.jobs) == 1 else f"{share_id}_{job_idx + 1}"
+            )
+
+            if get_linkedin_post_by_job_id(db, job_id):
+                print(f"    [dup] Job {job_id} already in DB — skipping.")
+                continue
+
+            record = LinkedInPostJobDetails.from_extracted(
+                job=job,
+                job_id=job_id,
+                post_url=post_url or "",
+            )
+            new_jobs.append(record)
+            print(f"    + [{job_id}] {job.title} @ {job.company_name or 'Unknown'}")
+
+        await asyncio.sleep(random.uniform(1.5, 3.0))
+
+    if new_jobs:
+        create_linkedin_post_details_bulk(db, new_jobs)
+        print(f"\n  Saved {len(new_jobs)} new job record(s) to the database.")
+    else:
+        print("\n  No new job records to save.")
+
+
+async def scrape_linkedin_posts() -> None:
+    try:
+        async with AsyncCamoufox(
+            headless=False,
+            persistent_context=True,
+            user_data_dir=PROFILE_DIR,
+            humanize=True,
+            geoip=True,
+        ) as browser:
+            assert isinstance(browser, BrowserContext)
+            page = browser.pages[0] if browser.pages else await browser.new_page()
+
+            with SessionLocal() as db:
+                for keyword in SEARCH_KEYWORDS:
+                    try:
+                        await _scrape_keyword(page, db, keyword)
+                    except Exception as e:
+                        print(f"[error] Failed for keyword '{keyword}': {e}")
+                        await asyncio.sleep(random.uniform(5.0, 15.0))
+
+    except Exception as e:
+        print(f"[fatal] Scraper terminated: {e}")
+        raise
+
+
+if __name__ == "__main__":
+    asyncio.run(scrape_linkedin_posts())

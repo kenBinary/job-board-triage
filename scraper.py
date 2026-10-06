@@ -8,6 +8,7 @@ from src.jobstreet.jobstreet_scraper import scrape_jobstreet
 from src.kalibrr.kalibrr_scraper import scrape_kalibrr
 from src.mynimo.mynimo_scraper import scrape_mynimo
 from src.olj.olj_scraper import scrape_olj
+from src.linkedin_posts.linkedin_posts_scraper import scrape_linkedin_posts
 
 app = typer.Typer()
 
@@ -17,6 +18,7 @@ SCRAPERS = {
     "olj": scrape_olj,
     "mynimo": scrape_mynimo,
     "kalibrr": scrape_kalibrr,
+    "linkedin-posts": scrape_linkedin_posts,
 }
 
 
