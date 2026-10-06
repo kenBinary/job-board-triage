@@ -1,12 +1,15 @@
 import asyncio
 import random
 from typing import Optional
-from urllib.parse import urlencode
 
 from camoufox import AsyncCamoufox
 from playwright.async_api import BrowserContext, Page
 
 from src.db.database import SessionLocal
+from src.linkedin_posts.models.linkedin_post_link import (
+    LinkedInPostLink,
+    LinkedInPostParams,
+)
 from .db import (
     create_linkedin_post_details_bulk,
     get_linkedin_post_by_job_id,
@@ -17,42 +20,16 @@ from .utils import extract_linkedin_post_data
 
 PROFILE_DIR = "./camoufox_profile"
 
-BASE_SEARCH_URL = "https://www.linkedin.com/search/results/content/"
-
-SEARCH_KEYWORDS: list[str] = [
-    "#remotejobsph",
-    "#jobsphilippines",
-    "#hiringphilippines",
-]
-
 POST_CLICK_DELAY_MIN: float = 2.0
 POST_CLICK_DELAY_MAX: float = 3.5
 
 CONTROL_MENU_URL_FRAGMENT = "feedUpdateControlMenuRequest"
 
-
-def _build_search_url(keyword: str) -> str:
-    """Construct the LinkedIn content search URL for a given keyword."""
-    params = {
-        "keywords": keyword,
-        "sortBy": '["date_posted"]',
-        "datePosted": '["past-week"]',
-    }
-    return f"{BASE_SEARCH_URL}?{urlencode(params)}"
-
-
-async def _scroll_page(page: Page) -> None:
-    print("  Scrolling feed...")
-    for _ in range(10):
-        await page.evaluate("""() => {
-            const allDivs = document.querySelectorAll('div[id^="expanded"]');
-            if (allDivs.length > 0) {
-                allDivs[allDivs.length - 1].scrollIntoView({ behavior: 'smooth', block: 'end' });
-            }
-        }""")
-
-        await asyncio.sleep(random.uniform(0, 1.5))
-    print("  Scroll complete.")
+DEFAULT_LINKS: list[LinkedInPostLink] = [
+    LinkedInPostLink(params=LinkedInPostParams(keywords="#remotejobsph")),
+    LinkedInPostLink(params=LinkedInPostParams(keywords="#jobsphilippines")),
+    LinkedInPostLink(params=LinkedInPostParams(keywords="#hiringphilippines")),
+]
 
 
 async def _get_image_urls_from_element(page: Page, element_id: str) -> list[str]:
@@ -114,10 +91,26 @@ async def _get_image_urls_from_element(page: Page, element_id: str) -> list[str]
     )
 
 
-async def _scrape_keyword(page: Page, db, keyword: str) -> None:
-    url = _build_search_url(keyword)
+async def _scroll_feed(page: Page, link: LinkedInPostLink) -> None:
+    """Scroll the LinkedIn feed according to the link's scroll config."""
+    print("  Scrolling feed...")
+    current_scroll = 0
+    while link.should_continue(current_scroll):
+        await page.evaluate("""() => {
+            const allDivs = document.querySelectorAll('div[id^="expanded"]');
+            if (allDivs.length > 0) {
+                allDivs[allDivs.length - 1].scrollIntoView({ behavior: 'smooth', block: 'end' });
+            }
+        }""")
+        await asyncio.sleep(random.uniform(0, 1.5))
+        current_scroll += 1
+    print("  Scroll complete.")
+
+
+async def _scrape_link(page: Page, db, link: LinkedInPostLink) -> None:
+    url = link.get_url()
     print(f"\n{'='*60}")
-    print(f"Keyword: {keyword}")
+    print(f"Keyword: {link.params.keywords}")
     print(f"URL: {url}")
     print("=" * 60)
 
@@ -127,7 +120,7 @@ async def _scrape_keyword(page: Page, db, keyword: str) -> None:
     if "authwall" in page.url.lower() or "login" in page.url.lower():
         input("LinkedIn requires login. Please log in and press Enter to continue...")
 
-    await _scroll_page(page)
+    await _scroll_feed(page, link)
 
     post_elements = await page.query_selector_all('div[id^="expanded"]')
     print(f"  Found {len(post_elements)} post elements.")
@@ -233,7 +226,10 @@ async def _scrape_keyword(page: Page, db, keyword: str) -> None:
         print("\n  No new job records to save.")
 
 
-async def scrape_linkedin_posts() -> None:
+async def scrape_linkedin_posts(
+    links: Optional[list[LinkedInPostLink]] = None,
+) -> None:
+    target_links = links if links is not None else DEFAULT_LINKS
     try:
         async with AsyncCamoufox(
             headless=False,
@@ -246,11 +242,13 @@ async def scrape_linkedin_posts() -> None:
             page = browser.pages[0] if browser.pages else await browser.new_page()
 
             with SessionLocal() as db:
-                for keyword in SEARCH_KEYWORDS:
+                for link in target_links:
                     try:
-                        await _scrape_keyword(page, db, keyword)
+                        await _scrape_link(page, db, link)
                     except Exception as e:
-                        print(f"[error] Failed for keyword '{keyword}': {e}")
+                        print(
+                            f"[error] Failed for keyword '{link.params.keywords}': {e}"
+                        )
                         await asyncio.sleep(random.uniform(5.0, 15.0))
 
     except Exception as e:
