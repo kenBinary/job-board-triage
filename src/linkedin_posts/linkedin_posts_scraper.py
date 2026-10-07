@@ -2,9 +2,11 @@ import asyncio
 import random
 from typing import Optional
 
+
 from camoufox import AsyncCamoufox
 from playwright.async_api import BrowserContext, Page
 
+from src.common.error_tracker import ConsecutiveErrorTracker
 from src.db.database import SessionLocal
 from src.linkedin_posts.models.linkedin_post_link import (
     LinkedInPostLink,
@@ -230,6 +232,8 @@ async def scrape_linkedin_posts(
     links: Optional[list[LinkedInPostLink]] = None,
 ) -> None:
     target_links = links if links is not None else DEFAULT_LINKS
+    tracker = ConsecutiveErrorTracker("LinkedIn Posts")
+
     try:
         async with AsyncCamoufox(
             headless=False,
@@ -245,10 +249,10 @@ async def scrape_linkedin_posts(
                 for link in target_links:
                     try:
                         await _scrape_link(page, db, link)
+                        tracker.record_success()
                     except Exception as e:
-                        print(
-                            f"[error] Failed for keyword '{link.params.keywords}': {e}"
-                        )
+                        if tracker.record_error(e):
+                            break
                         await asyncio.sleep(random.uniform(5.0, 15.0))
 
     except Exception as e:

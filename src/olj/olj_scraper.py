@@ -1,5 +1,6 @@
 import asyncio
 
+from src.common.error_tracker import ConsecutiveErrorTracker
 from src.db.database import SessionLocal
 from src.olj.db import create_olj_details_bulk, get_olj_details_by_job_id
 from src.olj.get_jobs import fetch_jobs
@@ -34,49 +35,61 @@ links = [
 
 
 async def scrape_olj() -> None:
+    tracker = ConsecutiveErrorTracker("OnlineJobs")
+
     try:
         with SessionLocal() as db:
             olj_job_details_list: list[OljJobDetails] = []
             for link in links:
-                for current_page in range(1, link.max_page + 1):
-                    current_link = link.get_next_page(current_page)
-                    print(f"Scraping OnlineJobs with link: {current_link}")
+                try:
+                    for current_page in range(1, link.max_page + 1):
+                        current_link = link.get_next_page(current_page)
+                        print(f"Scraping OnlineJobs with link: {current_link}")
 
-                    olj_jobs = await fetch_jobs(current_link)
-                    print(f"Scraped {len(olj_jobs)} jobs from OnlineJobs.")
-                    for job in olj_jobs:
-                        existing_job_details = get_olj_details_by_job_id(db, job.id)
-                        if existing_job_details:
+                        olj_jobs = await fetch_jobs(current_link)
+                        print(f"Scraped {len(olj_jobs)} jobs from OnlineJobs.")
+                        for job in olj_jobs:
+                            existing_job_details = get_olj_details_by_job_id(db, job.id)
+                            if existing_job_details:
+                                print(
+                                    f"Job with ID {job.id} already exists in the database. Skipping."
+                                )
+                                print("-" * 50)
+                                continue
+
+                            job_details = OljJobDetails.from_api_data(job)
+                            if any(j.job_id == job.id for j in olj_job_details_list):
+                                continue
+                            olj_job_details_list.append(job_details)
+
+                            print(f"[{job.id}] {job.title}")
                             print(
-                                f"Job with ID {job.id} already exists in the database. Skipping."
+                                f"https://www.onlinejobs.ph{job.link}"
+                                if job.link
+                                else "N/A"
+                            )
+                            print(f"  Job Type: {job.job_type}")
+                            print(
+                                f"  Salary: {job.salary}"
+                                if job.salary
+                                else "  Salary: N/A"
+                            )
+                            print(
+                                f" Tags: {', '.join(job.tags) if job.tags else 'N/A'}"
                             )
                             print("-" * 50)
-                            continue
 
-                        job_details = OljJobDetails.from_api_data(job)
-                        if any(j.job_id == job.id for j in olj_job_details_list):
-                            continue
-                        olj_job_details_list.append(job_details)
+                        create_olj_details_bulk(db, olj_job_details_list)
+                        olj_job_details_list.clear()
+                        print("*" * 50)
 
-                        print(f"[{job.id}] {job.title}")
-                        print(
-                            f"https://www.onlinejobs.ph{job.link}"
-                            if job.link
-                            else "N/A"
-                        )
-                        print(f"  Job Type: {job.job_type}")
-                        print(
-                            f"  Salary: {job.salary}" if job.salary else "  Salary: N/A"
-                        )
-                        print(f" Tags: {', '.join(job.tags) if job.tags else 'N/A'}")
-                        print("-" * 50)
+                        if current_page < link.max_page:
+                            await asyncio.sleep(10)
 
-                    create_olj_details_bulk(db, olj_job_details_list)
-                    olj_job_details_list.clear()
-                    print("*" * 50)
-
-                    if current_page < link.max_page:
-                        await asyncio.sleep(10)
+                    tracker.record_success()
+                except Exception as e:
+                    if tracker.record_error(e):
+                        break
 
     except Exception as e:
         print(f"Error occurred while scraping OnlineJobs: {e}")

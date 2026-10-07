@@ -11,6 +11,7 @@ from src.jobstreet.db import (
 from src.jobstreet.get_jobs import fetch_jobs, WorkArrangementEnum
 from src.jobstreet.models.jobstreet_job_details import JobStreetJobDetails
 from src.jobstreet.models.jobstreet_link import JobStreetLink, JobStreetParams
+from src.common.error_tracker import ConsecutiveErrorTracker
 
 BASE_URL = "https://ph.jobstreet.com/graphql"
 
@@ -173,17 +174,24 @@ async def scrape_jobstreet_link(link: JobStreetLink) -> None:
 
     except Exception as e:
         print(f"Error occurred while scraping JobStreet: {e}")
+        raise
 
 
 async def scrape_jobstreet(links: list[JobStreetLink] | None = None) -> None:
     """Scrape all configured JobStreet search targets."""
     targets = links if links is not None else LINKS
+    tracker = ConsecutiveErrorTracker("JobStreet")
 
     try:
         total_items = len(targets)
         for index, link in enumerate(targets):
             print(f"Scraping JobStreet target {index + 1} of {total_items}")
-            await scrape_jobstreet_link(link)
+            try:
+                await scrape_jobstreet_link(link)
+                tracker.record_success()
+            except Exception as e:
+                if tracker.record_error(e):
+                    break
 
             if index < total_items - 1:
                 await asyncio.sleep(random.uniform(4.0, 10.0))

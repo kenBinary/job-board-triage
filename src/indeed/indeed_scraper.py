@@ -4,6 +4,7 @@ from typing import List
 from playwright.async_api import BrowserContext
 from camoufox import AsyncCamoufox
 
+from src.common.error_tracker import ConsecutiveErrorTracker
 from src.db.database import SessionLocal
 from src.indeed.db import create_indeed_details_bulk, get_indeed_details_by_job_id
 from src.indeed.get_jobs import fetch_job
@@ -118,6 +119,8 @@ SKIPPED_JOBS_THRESHOLD = 10
 
 
 async def scrape_indeed() -> None:
+    tracker = ConsecutiveErrorTracker("Indeed")
+
     try:
         async with AsyncCamoufox(
             headless=False,
@@ -192,10 +195,10 @@ async def scrape_indeed() -> None:
                             else:
                                 print(f"No job cards found for {current_link}")
                         await asyncio.sleep(random.uniform(10.0, 20.0))
+                        tracker.record_success()
                     except Exception as e:
-                        print(
-                            f"Error occurred while scraping link {link.base_url}: {e}"
-                        )
+                        if tracker.record_error(e):
+                            break
                         await asyncio.sleep(random.uniform(10.0, 20.0))
     except Exception as e:
         print(f"Error occurred while scraping Indeed: {e}")

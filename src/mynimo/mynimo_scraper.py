@@ -1,8 +1,8 @@
 import asyncio
 import random
-
 from sqlalchemy.orm import Session
 
+from src.common.error_tracker import ConsecutiveErrorTracker
 from src.db.database import SessionLocal
 from src.mynimo.db import create_mynimo_details_bulk, get_mynimo_details_by_job_id
 from src.mynimo.get_jobs import fetch_jobs
@@ -109,19 +109,25 @@ async def scrape_mynimo_link(db: Session, link_target: MynimoLink) -> None:
 
         except Exception as e:
             print(f"  Error on page {current_page} of {page_url}: {e}")
-            break
+            raise
 
 
 async def scrape_mynimo(links: list[MynimoLink] | None = None) -> None:
     """Scrape all configured Mynimo search targets."""
     targets = links if links is not None else LINKS
+    tracker = ConsecutiveErrorTracker("Mynimo")
 
     try:
         with SessionLocal() as db:
             total = len(targets)
             for index, link_target in enumerate(targets):
                 print("=" * 50)
-                await scrape_mynimo_link(db, link_target)
+                try:
+                    await scrape_mynimo_link(db, link_target)
+                    tracker.record_success()
+                except Exception as e:
+                    if tracker.record_error(e):
+                        break
 
                 if index < total - 1:
                     delay = random.uniform(3.0, 6.0)

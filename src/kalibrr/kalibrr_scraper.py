@@ -1,9 +1,9 @@
 import asyncio
 import math
 import random
-
 from sqlalchemy.orm import Session
 
+from src.common.error_tracker import ConsecutiveErrorTracker
 from src.db.database import SessionLocal
 from src.kalibrr.db import create_kalibrr_details_bulk, get_kalibrr_details_by_job_id
 from src.kalibrr.get_jobs import fetch_jobs
@@ -137,20 +137,28 @@ async def scrape_kalibrr_link(db: Session, link_target: KalibrrLink) -> None:
                 await asyncio.sleep(delay)
 
         except Exception as e:
-            print(f"  Error on page {current_page} for '{link_target.params.text}': {e}")
-            break
+            print(
+                f"  Error on page {current_page} for '{link_target.params.text}': {e}"
+            )
+            raise
 
 
 async def scrape_kalibrr(links: list[KalibrrLink] | None = None) -> None:
     """Scrape all configured Kalibrr search targets."""
     targets = links if links is not None else LINKS
+    tracker = ConsecutiveErrorTracker("Kalibrr")
 
     try:
         with SessionLocal() as db:
             total = len(targets)
             for index, link_target in enumerate(targets):
                 print("=" * 50)
-                await scrape_kalibrr_link(db, link_target)
+                try:
+                    await scrape_kalibrr_link(db, link_target)
+                    tracker.record_success()
+                except Exception as e:
+                    if tracker.record_error(e):
+                        break
 
                 if index < total - 1:
                     delay = random.uniform(4.0, 8.0)
