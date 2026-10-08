@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone
 import random
 from typing import Optional
 from playwright.async_api import BrowserContext, Page
@@ -214,6 +215,8 @@ async def _scrape_link(page: Page, db, link: LinkedInPostLink) -> None:
                 job_id=job_id,
                 post_url=post_url or "",
             )
+            # TODO: actually get the posted date from the post, not just the current time
+            record.posted_at_utc = datetime.now(timezone.utc).isoformat()
             new_jobs.append(record)
             print(f"    + [{job_id}] {job.title} @ {job.company_name or 'Unknown'}")
 

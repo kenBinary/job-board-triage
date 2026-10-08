@@ -30,9 +30,7 @@ def get_linkedin_post_by_job_id(
     db: Session,
     job_id: str,
 ) -> Optional[LinkedInPostJobDetails]:
-    stmt = select(LinkedInPostJobDetails).where(
-        LinkedInPostJobDetails.job_id == job_id
-    )
+    stmt = select(LinkedInPostJobDetails).where(LinkedInPostJobDetails.job_id == job_id)
     return db.scalar(stmt)
 
 
@@ -80,3 +78,16 @@ def get_linkedin_post_job_details_list(
         page=(skip // limit) + 1 if limit > 0 else 1,
         page_size=limit,
     )
+
+
+def update_linkedin_post_details(db: Session, job: LinkedInPostJobDetails) -> None:
+    db.merge(job)
+    db.commit()
+
+
+def update_linkedin_post_details_bulk(
+    db: Session, jobs: List[LinkedInPostJobDetails]
+) -> None:
+    for job in jobs:
+        db.merge(job)
+    db.commit()

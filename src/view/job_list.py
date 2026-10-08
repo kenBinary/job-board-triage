@@ -12,6 +12,8 @@ from src.view.jobstreet.jobstreet_job_card import jobsreet_job_card
 from src.view.jobstreet.jobstreet_state import jobstreet_state
 from src.view.kalibrr.kalibrr_job_card import kalibrr_job_card
 from src.view.kalibrr.kalibrr_state import kalibrr_state
+from src.view.linkedin.linkedin_job_card import linkedin_job_card
+from src.view.linkedin.linkedin_state import linkedin_state
 from src.view.mynimo.mynimo_job_card import mynimo_job_card
 from src.view.mynimo.mynimo_state import mynimo_state
 from src.view.olj.olj_job_card import olj_job_card
@@ -60,6 +62,13 @@ def render_pagination_bar(
                 kalibrr_state.get_jobs(
                     filters=filters, skip=(page - 1) * page_size, limit=page_size
                 )
+            case "LinkedIn":
+                page = max(1, min(page, total_pages))
+                linkedin_state.get_jobs(
+                    is_new=global_state.show_new_only,
+                    skip=(page - 1) * page_size,
+                    limit=page_size,
+                )
         on_page_change()
 
     def handle_page_size_change(size: int):
@@ -80,6 +89,10 @@ def render_pagination_bar(
             case "Kalibrr":
                 filters = GetKalibrrDetailsFilters(is_new=global_state.show_new_only)
                 kalibrr_state.get_jobs(filters=filters, skip=0, limit=size)
+            case "LinkedIn":
+                linkedin_state.get_jobs(
+                    is_new=global_state.show_new_only, skip=0, limit=size
+                )
         on_page_change()
 
     def handle_goto_page(page: int):
@@ -188,6 +201,8 @@ def job_list_view(on_status_change, on_page_change):
             jobCount = mynimo_state.total_count
         case "Kalibrr":
             jobCount = kalibrr_state.total_count
+        case "LinkedIn":
+            jobCount = linkedin_state.total_count
 
     if jobCount == 0:
         with ui.card().classes(
@@ -247,4 +262,14 @@ def job_list_view(on_status_change, on_page_change):
                     page_size=kalibrr_state.paginated_jobs.page_size,
                     total_count=kalibrr_state.paginated_jobs.total,
                     total_pages=kalibrr_state.paginated_jobs.total_pages,
+                )
+            case "LinkedIn":
+                for job in linkedin_state.jobs:
+                    linkedin_job_card(job, on_refresh=on_status_change)
+                render_pagination_bar(
+                    on_page_change=on_page_change,
+                    current_page=linkedin_state.paginated_jobs.page,
+                    page_size=linkedin_state.paginated_jobs.page_size,
+                    total_count=linkedin_state.paginated_jobs.total,
+                    total_pages=linkedin_state.paginated_jobs.total_pages,
                 )
