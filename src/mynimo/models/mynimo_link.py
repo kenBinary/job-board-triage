@@ -1,4 +1,6 @@
-from dataclasses import dataclass, field
+import json
+from dataclasses import asdict, dataclass, field
+from typing import Any, Dict, Optional
 from urllib.parse import urlencode
 
 from src.common.models.base_link_model import BaseLinkModel
@@ -28,3 +30,25 @@ class MynimoLink(BaseLinkModel):
             )
 
         return f"{self.base_url}?{self.params.to_query_string(page)}"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "max_page": self.max_page,
+            "base_url": self.base_url,
+            "params": asdict(self.params),
+        }
+
+    def to_json(self, indent: Optional[int] = None) -> str:
+        return json.dumps(self.to_dict(), indent=indent)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "MynimoLink":
+        return cls(
+            max_page=data["max_page"],
+            base_url=data["base_url"],
+            params=MynimoParams(**data.get("params", {})),
+        )
+
+    @classmethod
+    def from_json(cls, json_str: str) -> "MynimoLink":
+        return cls.from_dict(json.loads(json_str))

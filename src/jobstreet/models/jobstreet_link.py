@@ -1,5 +1,6 @@
-from dataclasses import dataclass, field
-from typing import List, Literal, Optional
+import json
+from dataclasses import asdict, dataclass, field
+from typing import Any, Dict, List, Literal, Optional
 from urllib.parse import urlencode
 
 from src.jobstreet.get_jobs import JobSearchParams, WorkArrangementEnum
@@ -65,6 +66,23 @@ class JobStreetParams:
             auth_token=self.auth_token,
         )
 
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "JobStreetParams":
+        data_copy = dict(data)
+        if data_copy.get("work_arrangement_ids") is not None:
+            data_copy["work_arrangement_ids"] = [
+                (
+                    WorkArrangementEnum(wa)
+                    if not isinstance(wa, WorkArrangementEnum)
+                    else wa
+                )
+                for wa in data_copy["work_arrangement_ids"]
+            ]
+        return cls(**data_copy)
+
 
 @dataclass
 class JobStreetLink(BaseLinkModel):
@@ -91,3 +109,32 @@ class JobStreetLink(BaseLinkModel):
             )
 
         return self.params.to_job_search_params(page)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "max_page": self.max_page,
+            "base_url": self.base_url,
+            "params": self.params.to_dict(),
+        }
+
+    def to_json(self, indent: Optional[int] = None) -> str:
+        return json.dumps(self.to_dict(), indent=indent)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "JobStreetLink":
+        params_raw = data.get("params", {})
+        params = (
+            JobStreetParams.from_dict(params_raw)
+            if isinstance(params_raw, dict)
+            else (params_raw or JobStreetParams())
+        )
+        return cls(
+            max_page=data["max_page"],
+            base_url=data["base_url"],
+            params=params,
+        )
+
+    @classmethod
+    def from_json(cls, json_str: str) -> "JobStreetLink":
+        data = json.loads(json_str)
+        return cls.from_dict(data)

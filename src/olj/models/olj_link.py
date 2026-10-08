@@ -1,5 +1,6 @@
-from dataclasses import dataclass
-from typing import Optional
+import json
+from dataclasses import asdict, dataclass
+from typing import Any, Dict, Optional
 from urllib.parse import urlencode
 
 from src.common.models.base_link_model import BaseLinkModel
@@ -36,3 +37,25 @@ class OljLink(BaseLinkModel):
             return f"{page_path}?{self.params.to_query_string()}"
 
         return page_path
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "max_page": self.max_page,
+            "base_url": self.base_url,
+            "params": asdict(self.params),
+        }
+
+    def to_json(self, indent: Optional[int] = None) -> str:
+        return json.dumps(self.to_dict(), indent=indent)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "OljLink":
+        return cls(
+            max_page=data["max_page"],
+            base_url=data["base_url"],
+            params=OljParams(**data.get("params", {})),
+        )
+
+    @classmethod
+    def from_json(cls, json_str: str) -> "OljLink":
+        return cls.from_dict(json.loads(json_str))
