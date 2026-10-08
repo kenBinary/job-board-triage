@@ -30,6 +30,14 @@ DEFAULT_LINKS: list[LinkedInPostLink] = [
     LinkedInPostLink(params=LinkedInPostParams(keywords="#remotejobsph")),
     LinkedInPostLink(params=LinkedInPostParams(keywords="#jobsphilippines")),
     LinkedInPostLink(params=LinkedInPostParams(keywords="#hiringphilippines")),
+    LinkedInPostLink(params=LinkedInPostParams(keywords="#jobsph")),
+    LinkedInPostLink(params=LinkedInPostParams(keywords="#hiringph")),
+    LinkedInPostLink(params=LinkedInPostParams(keywords="#philippinejobs")),
+    LinkedInPostLink(params=LinkedInPostParams(keywords="#onlinejobsph")),
+    LinkedInPostLink(params=LinkedInPostParams(keywords="#workfromhomeph")),
+    LinkedInPostLink(params=LinkedInPostParams(keywords="#cebujobs")),
+    LinkedInPostLink(params=LinkedInPostParams(keywords="#cdohiring")),
+    LinkedInPostLink(params=LinkedInPostParams(keywords="#cdojobs")),
 ]
 
 
