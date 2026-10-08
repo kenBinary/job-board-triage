@@ -1,5 +1,8 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Optional, Type, TypeVar
+
+T = TypeVar("T", bound="BaseInfiniteScrollModel")
 
 
 @dataclass
@@ -25,3 +28,14 @@ class BaseInfiniteScrollModel(ABC):
     def should_continue(self, current_scrolls: int) -> bool:
         """Return True if scrolling should continue based on current scroll count."""
         return current_scrolls < self.max_scrolls
+
+    @abstractmethod
+    def to_json(self, indent: Optional[int] = None) -> str:
+        """Serializes the model instance to a JSON string."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_json(cls: Type[T], json_str: str) -> T:
+        """Deserializes a JSON string into an instance of the model."""
+        pass
