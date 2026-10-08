@@ -1,13 +1,11 @@
 import asyncio
 import random
 from typing import Optional
-
-
-from camoufox import AsyncCamoufox
 from playwright.async_api import BrowserContext, Page
 
-from src.common.error_tracker import ConsecutiveErrorTracker
+from src.common.infra.browser_context import CamoufoxSingleton
 from src.db.database import SessionLocal
+from src.linkedin_posts.linkedin_posts_run_tracker import LinkedinPostsRunTracker
 from src.linkedin_posts.models.linkedin_post_link import (
     LinkedInPostLink,
     LinkedInPostParams,
@@ -104,7 +102,7 @@ async def _scroll_feed(page: Page, link: LinkedInPostLink) -> None:
                 allDivs[allDivs.length - 1].scrollIntoView({ behavior: 'smooth', block: 'end' });
             }
         }""")
-        await asyncio.sleep(random.uniform(0, 1.5))
+        await asyncio.sleep(random.uniform(0.5, 2.5))
         current_scroll += 1
     print("  Scroll complete.")
 
@@ -230,30 +228,34 @@ async def _scrape_link(page: Page, db, link: LinkedInPostLink) -> None:
 
 async def scrape_linkedin_posts(
     links: Optional[list[LinkedInPostLink]] = None,
+    is_retry: bool = False,
 ) -> None:
-    target_links = links if links is not None else DEFAULT_LINKS
-    tracker = ConsecutiveErrorTracker("LinkedIn Posts")
+    targets = links if links is not None else DEFAULT_LINKS
+    tracker = LinkedinPostsRunTracker(links=targets, is_retry_run=is_retry)
 
     try:
-        async with AsyncCamoufox(
-            headless=False,
-            persistent_context=True,
-            user_data_dir=PROFILE_DIR,
-            humanize=True,
-            geoip=True,
-        ) as browser:
-            assert isinstance(browser, BrowserContext)
-            page = browser.pages[0] if browser.pages else await browser.new_page()
+        context = await CamoufoxSingleton.get_context()
+        assert isinstance(context, BrowserContext)
+        page = await context.new_page()
 
-            with SessionLocal() as db:
-                for link in target_links:
-                    try:
-                        await _scrape_link(page, db, link)
-                        tracker.record_success()
-                    except Exception as e:
-                        if tracker.record_error(e):
-                            break
-                        await asyncio.sleep(random.uniform(5.0, 15.0))
+        with SessionLocal() as db:
+            total_items = len(targets)
+            for index, link in enumerate(targets):
+                tracker.set_current_index(index)
+                print(f"Scraping LinkedIn Posts target {index + 1} of {total_items}")
+                try:
+                    await _scrape_link(page, db, link)
+                    tracker.record_success()
+                except Exception as e:
+                    if tracker.record_link_error(link=link, error=e):
+                        break
+
+                if index < total_items - 1:
+                    await asyncio.sleep(random.uniform(5.0, 15.0))
+
+                print("" + "=" * 50 + "\n")
+
+        tracker.finalize()
 
     except Exception as e:
         print(f"[fatal] Scraper terminated: {e}")

@@ -2,12 +2,12 @@ import asyncio
 import random
 from sqlalchemy.orm import Session
 
-from src.common.error_tracker import ConsecutiveErrorTracker
 from src.db.database import SessionLocal
 from src.mynimo.db import create_mynimo_details_bulk, get_mynimo_details_by_job_id
 from src.mynimo.get_jobs import fetch_jobs
 from src.mynimo.models.mynimo_job_details import MynimoJobDetails
 from src.mynimo.models.mynimo_link import MynimoLink, MynimoParams
+from src.mynimo.mynimo_run_tracker import MynimoRunTracker
 
 BASE_URL = "https://www.mynimo.com/api/jobs/local/browse"
 
@@ -112,21 +112,24 @@ async def scrape_mynimo_link(db: Session, link_target: MynimoLink) -> None:
             raise
 
 
-async def scrape_mynimo(links: list[MynimoLink] | None = None) -> None:
+async def scrape_mynimo(
+    links: list[MynimoLink] | None = None, is_retry: bool = False
+) -> None:
     """Scrape all configured Mynimo search targets."""
     targets = links if links is not None else LINKS
-    tracker = ConsecutiveErrorTracker("Mynimo")
+    tracker = MynimoRunTracker(links=targets, is_retry_run=is_retry)
 
     try:
         with SessionLocal() as db:
             total = len(targets)
             for index, link_target in enumerate(targets):
+                tracker.set_current_index(index)
                 print("=" * 50)
                 try:
                     await scrape_mynimo_link(db, link_target)
                     tracker.record_success()
                 except Exception as e:
-                    if tracker.record_error(e):
+                    if tracker.record_link_error(link=link_target, error=e):
                         break
 
                 if index < total - 1:
@@ -136,6 +139,7 @@ async def scrape_mynimo(links: list[MynimoLink] | None = None) -> None:
 
         print("=" * 50)
         print("Mynimo scraping complete.")
+        tracker.finalize()
 
     except Exception as e:
         print(f"Error occurred while scraping Mynimo: {e}")

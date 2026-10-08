@@ -3,41 +3,49 @@ import math
 import random
 from sqlalchemy.orm import Session
 
-from src.common.error_tracker import ConsecutiveErrorTracker
 from src.db.database import SessionLocal
 from src.kalibrr.db import create_kalibrr_details_bulk, get_kalibrr_details_by_job_id
 from src.kalibrr.get_jobs import fetch_jobs
 from src.kalibrr.models.kalibrr_job_details import KalibrrJobDetails
 from src.kalibrr.models.kalibrr_link import KalibrrLink, KalibrrParams
+from src.kalibrr.kalibrr_run_tracker import KalibrrRunTracker
 
 BASE_URL = "https://www.kalibrr.com/kjs/job_board/search"
 
 LINKS: list[KalibrrLink] = [
-    # KalibrrLink(
-    #     max_page=2,
-    #     base_url=BASE_URL,
-    #     params=KalibrrParams(text="developer", is_work_from_home=True, country="Philippines"),
-    # ),
-    # KalibrrLink(
-    #     max_page=2,
-    #     base_url=BASE_URL,
-    #     params=KalibrrParams(text="software", is_work_from_home=True, country="Philippines"),
-    # ),
-    # KalibrrLink(
-    #     max_page=2,
-    #     base_url=BASE_URL,
-    #     params=KalibrrParams(text="engineer", is_work_from_home=True, country="Philippines"),
-    # ),
-    # KalibrrLink(
-    #     max_page=2,
-    #     base_url=BASE_URL,
-    #     params=KalibrrParams(text="web", is_work_from_home=True, country="Philippines"),
-    # ),
-    # KalibrrLink(
-    #     max_page=2,
-    #     base_url=BASE_URL,
-    #     params=KalibrrParams(text=".net", is_work_from_home=True, country="Philippines"),
-    # ),
+    KalibrrLink(
+        max_page=2,
+        base_url=BASE_URL,
+        params=KalibrrParams(
+            text="developer", is_work_from_home=True, country="Philippines"
+        ),
+    ),
+    KalibrrLink(
+        max_page=2,
+        base_url=BASE_URL,
+        params=KalibrrParams(
+            text="software", is_work_from_home=True, country="Philippines"
+        ),
+    ),
+    KalibrrLink(
+        max_page=2,
+        base_url=BASE_URL,
+        params=KalibrrParams(
+            text="engineer", is_work_from_home=True, country="Philippines"
+        ),
+    ),
+    KalibrrLink(
+        max_page=2,
+        base_url=BASE_URL,
+        params=KalibrrParams(text="web", is_work_from_home=True, country="Philippines"),
+    ),
+    KalibrrLink(
+        max_page=2,
+        base_url=BASE_URL,
+        params=KalibrrParams(
+            text=".net", is_work_from_home=True, country="Philippines"
+        ),
+    ),
     KalibrrLink(
         max_page=2,
         base_url=BASE_URL,
@@ -143,21 +151,24 @@ async def scrape_kalibrr_link(db: Session, link_target: KalibrrLink) -> None:
             raise
 
 
-async def scrape_kalibrr(links: list[KalibrrLink] | None = None) -> None:
+async def scrape_kalibrr(
+    links: list[KalibrrLink] | None = None, is_retry: bool = False
+) -> None:
     """Scrape all configured Kalibrr search targets."""
     targets = links if links is not None else LINKS
-    tracker = ConsecutiveErrorTracker("Kalibrr")
+    tracker = KalibrrRunTracker(links=targets, is_retry_run=is_retry)
 
     try:
         with SessionLocal() as db:
             total = len(targets)
             for index, link_target in enumerate(targets):
+                tracker.set_current_index(index)
                 print("=" * 50)
                 try:
                     await scrape_kalibrr_link(db, link_target)
                     tracker.record_success()
                 except Exception as e:
-                    if tracker.record_error(e):
+                    if tracker.record_link_error(link=link_target, error=e):
                         break
 
                 if index < total - 1:
@@ -167,6 +178,7 @@ async def scrape_kalibrr(links: list[KalibrrLink] | None = None) -> None:
 
         print("=" * 50)
         print("Kalibrr scraping complete.")
+        tracker.finalize()
 
     except Exception as e:
         print(f"Error occurred while scraping Kalibrr: {e}")

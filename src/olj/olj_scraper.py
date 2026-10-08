@@ -1,15 +1,15 @@
 import asyncio
 
-from src.common.error_tracker import ConsecutiveErrorTracker
 from src.db.database import SessionLocal
 from src.olj.db import create_olj_details_bulk, get_olj_details_by_job_id
 from src.olj.get_jobs import fetch_jobs
 from src.olj.models.olj_job_details import OljJobDetails
 from src.olj.models.olj_link import OljLink, OljParams
+from src.olj.olj_run_tracker import OljRunTracker
 
 BASE_URL = "https://www.onlinejobs.ph/jobseekers/jobsearch"
 
-links = [
+LINKS = [
     OljLink(
         max_page=2,
         base_url=BASE_URL,
@@ -34,13 +34,20 @@ links = [
 ]
 
 
-async def scrape_olj() -> None:
-    tracker = ConsecutiveErrorTracker("OnlineJobs")
+async def scrape_olj(
+    links: list[OljLink] | None = None, is_retry: bool = False
+) -> None:
+    """Scrape all configured OnlineJobs search targets."""
+    targets = links if links is not None else LINKS
+    tracker = OljRunTracker(links=targets, is_retry_run=is_retry)
 
     try:
         with SessionLocal() as db:
             olj_job_details_list: list[OljJobDetails] = []
-            for link in links:
+            total_items = len(targets)
+            for index, link in enumerate(targets):
+                tracker.set_current_index(index)
+                print(f"Scraping OnlineJobs target {index + 1} of {total_items}")
                 try:
                     for current_page in range(1, link.max_page + 1):
                         current_link = link.get_next_page(current_page)
@@ -88,8 +95,12 @@ async def scrape_olj() -> None:
 
                     tracker.record_success()
                 except Exception as e:
-                    if tracker.record_error(e):
+                    if tracker.record_link_error(link=link, error=e):
                         break
+
+                print("" + "=" * 50 + "\n")
+
+        tracker.finalize()
 
     except Exception as e:
         print(f"Error occurred while scraping OnlineJobs: {e}")

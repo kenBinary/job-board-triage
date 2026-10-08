@@ -1,5 +1,6 @@
-from dataclasses import dataclass, field
-from typing import Literal
+import json
+from dataclasses import asdict, dataclass, field
+from typing import Any, Dict, Literal, Optional
 from urllib.parse import urlencode
 
 from src.common.models.base_infinite_scroll_model import BaseInfiniteScrollModel
@@ -29,6 +30,13 @@ class LinkedInPostParams:
         }
         return urlencode(params)
 
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "LinkedInPostParams":
+        return cls(**data)
+
 
 @dataclass
 class LinkedInPostLink(BaseInfiniteScrollModel):
@@ -48,3 +56,32 @@ class LinkedInPostLink(BaseInfiniteScrollModel):
     def get_url(self) -> str:
         """Build the full LinkedIn content search URL from the stored params."""
         return f"{self.base_url}?{self.params.to_query_string()}"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "base_url": self.base_url,
+            "max_scrolls": self.max_scrolls,
+            "params": self.params.to_dict(),
+        }
+
+    def to_json(self, indent: Optional[int] = None) -> str:
+        return json.dumps(self.to_dict(), indent=indent)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "LinkedInPostLink":
+        params_raw = data.get("params", {})
+        params = (
+            LinkedInPostParams.from_dict(params_raw)
+            if isinstance(params_raw, dict)
+            else (params_raw or LinkedInPostParams(keywords=""))
+        )
+        return cls(
+            base_url=data.get("base_url", BASE_SEARCH_URL),
+            max_scrolls=data.get("max_scrolls", 10),
+            params=params,
+        )
+
+    @classmethod
+    def from_json(cls, json_str: str) -> "LinkedInPostLink":
+        data = json.loads(json_str)
+        return cls.from_dict(data)
