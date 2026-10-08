@@ -14,26 +14,31 @@ class LinkedInState:
     jobs: List[LinkedInPostJobDetails]
     search_query: str
     show_new_only: bool
+    category: Optional[str]
 
     def __init__(self):
         self.paginated_jobs = PaginatedList(items=[], total=0, page=1, page_size=25)
         self.jobs = []
         self.search_query = ""
         self.show_new_only = True
+        self.category = None
 
     def get_jobs(
         self,
         keyword: Optional[str] = None,
         work_type: Optional[str] = None,
+        category: Optional[str] = None,
         is_new: Optional[bool] = None,
         skip: int = 0,
         limit: int = 25,
     ) -> PaginatedList[LinkedInPostJobDetails]:
         with SessionLocal() as db:
+            active_category = category if category is not None else self.category
             paginated_jobs = get_linkedin_post_job_details_list(
                 db=db,
                 keyword=keyword if keyword is not None else (self.search_query or None),
                 work_type=work_type,
+                category=active_category,
                 is_new=is_new,
                 skip=skip,
                 limit=limit,

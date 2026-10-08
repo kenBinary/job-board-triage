@@ -38,6 +38,7 @@ def get_linkedin_post_job_details_list(
     db: Session,
     keyword: Optional[str] = None,
     work_type: Optional[str] = None,
+    category: Optional[str] = None,
     is_new: Optional[bool] = None,
     skip: int = 0,
     limit: int = 25,
@@ -59,6 +60,9 @@ def get_linkedin_post_job_details_list(
 
     if work_type is not None:
         stmt = stmt.where(LinkedInPostJobDetails.work_type == work_type)
+
+    if category is not None:
+        stmt = stmt.where(LinkedInPostJobDetails.category == category)
 
     if is_new is not None:
         stmt = stmt.where(LinkedInPostJobDetails.is_new == is_new)

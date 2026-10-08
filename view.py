@@ -14,6 +14,7 @@ def index():
         job_list_view.refresh()
 
     def refresh_job_list():
+        filter_bar_view.refresh()
         job_list_view.refresh()
 
     with ui.column().classes("w-full max-w-7xl mx-auto p-4 md:p-6 gap-3"):
