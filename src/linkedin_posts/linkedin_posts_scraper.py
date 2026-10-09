@@ -5,6 +5,7 @@ from typing import Optional
 from playwright.async_api import BrowserContext, Page
 
 from src.common.infra.browser_context import CamoufoxSingleton
+from src.common.logger import format_job_log, get_logger
 from src.db.database import SessionLocal
 from src.linkedin_posts.linkedin_posts_run_tracker import LinkedinPostsRunTracker
 from src.linkedin_posts.models.linkedin_post_link import (
@@ -18,6 +19,9 @@ from .db import (
 from .llm_extractor import extract_jobs_from_post
 from .models.linkedin_post_job_details import LinkedInPostJobDetails
 from .utils import extract_linkedin_post_data
+
+logger = get_logger("linkedin_posts_scraper")
+
 
 PROFILE_DIR = "./camoufox_profile"
 
@@ -102,7 +106,7 @@ async def _get_image_urls_from_element(page: Page, element_id: str) -> list[str]
 
 async def _scroll_feed(page: Page, link: LinkedInPostLink) -> None:
     """Scroll the LinkedIn feed according to the link's scroll config."""
-    print("  Scrolling feed...")
+    logger.debug("[LinkedIn Posts] Scrolling feed...")
     current_scroll = 0
     while link.should_continue(current_scroll):
         await page.evaluate("""() => {
@@ -113,15 +117,14 @@ async def _scroll_feed(page: Page, link: LinkedInPostLink) -> None:
         }""")
         await asyncio.sleep(random.uniform(0.5, 2.5))
         current_scroll += 1
-    print("  Scroll complete.")
+    logger.debug("[LinkedIn Posts] Scroll complete.")
 
 
-async def _scrape_link(page: Page, db, link: LinkedInPostLink) -> None:
+async def _scrape_link(
+    page: Page, db, link: LinkedInPostLink, target_idx: int, total_targets: int
+) -> None:
     url = link.get_url()
-    print(f"\n{'='*60}")
-    print(f"Keyword: {link.params.keywords}")
-    print(f"URL: {url}")
-    print("=" * 60)
+    logger.debug(f"[LinkedIn Posts] Scraping link: {url}")
 
     await page.goto(url, wait_until="domcontentloaded")
     await asyncio.sleep(random.uniform(3.5, 8.0))
@@ -132,16 +135,21 @@ async def _scrape_link(page: Page, db, link: LinkedInPostLink) -> None:
     await _scroll_feed(page, link)
 
     post_elements = await page.query_selector_all('div[id^="expanded"]')
-    print(f"  Found {len(post_elements)} post elements.")
+    total_posts = len(post_elements)
+    logger.debug(f"[LinkedIn Posts] Found {total_posts} post elements.")
 
     new_jobs: list[LinkedInPostJobDetails] = []
+    saved_count = 0
+    skipped_count = 0
 
-    for idx, element in enumerate(post_elements):
+    for idx, element in enumerate(post_elements, 1):
         element_id = await element.get_attribute("id")
         if not element_id:
             continue
 
-        print(f"\n  [{idx + 1}/{len(post_elements)}] Processing post: #{element_id}")
+        logger.debug(
+            f"[LinkedIn Posts] [{idx}/{total_posts}] Processing post: #{element_id}"
+        )
 
         post_url: Optional[str] = None
         share_id: Optional[str] = None
@@ -151,7 +159,9 @@ async def _scrape_link(page: Page, db, link: LinkedInPostLink) -> None:
                 'button[aria-label*="Open control menu" i]'
             )
             if not control_btn:
-                print("    [skip] No control menu button found — skipping.")
+                logger.debug(
+                    "[LinkedIn Posts] [skip] No control menu button found — skipping."
+                )
                 continue
 
             async with page.expect_response(
@@ -166,19 +176,21 @@ async def _scrape_link(page: Page, db, link: LinkedInPostLink) -> None:
 
             try:
                 post_url, share_id = extract_linkedin_post_data(response_text)
-                print(f"    share_id={share_id}, url={post_url}")
+                logger.debug(f"[LinkedIn Posts] share_id={share_id}, url={post_url}")
             except ValueError as e:
-                print(f"    [warn] extract_linkedin_post_data: {e}")
+                logger.warning(f"[LinkedIn Posts] extract_linkedin_post_data: {e}")
 
             await asyncio.sleep(random.uniform(0.5, 1.5))
             await page.keyboard.press("Escape")
 
         except Exception as e:
-            print(f"    [error] Control menu interception failed: {e}")
+            logger.warning(f"[LinkedIn Posts] Control menu interception failed: {e}")
             await page.keyboard.press("Escape")
 
         if not share_id:
-            print("    [skip] Could not obtain share_id — skipping.")
+            logger.debug(
+                "[LinkedIn Posts] [skip] Could not obtain share_id — skipping."
+            )
             await asyncio.sleep(
                 random.uniform(POST_CLICK_DELAY_MIN, POST_CLICK_DELAY_MAX)
             )
@@ -189,33 +201,34 @@ async def _scrape_link(page: Page, db, link: LinkedInPostLink) -> None:
 
         # TODO: Get Image Base64 directly without downloading
         image_urls = await _get_image_urls_from_element(page, element_id)
-        print(f"    Images found: {len(image_urls)}")
+        logger.debug(f"[LinkedIn Posts] Images found: {len(image_urls)}")
 
         try:
             extraction = await extract_jobs_from_post(post_text, image_urls)
         except Exception as e:
-            print(f"    [error] LLM extraction failed: {e}")
+            logger.warning(f"[LinkedIn Posts] LLM extraction failed: {e}")
             await asyncio.sleep(
                 random.uniform(POST_CLICK_DELAY_MIN, POST_CLICK_DELAY_MAX)
             )
             continue
 
         if not extraction.is_job_post:
-            print("    [skip] LLM determined this is not a job post.")
+            logger.debug(
+                "[LinkedIn Posts] [skip] LLM determined this is not a job post."
+            )
             await asyncio.sleep(
                 random.uniform(POST_CLICK_DELAY_MIN, POST_CLICK_DELAY_MAX)
             )
             continue
 
-        print(f"    Extracted {len(extraction.jobs)} job(s).")
-
-        for job_idx, job in enumerate(extraction.jobs):
-            job_id = (
-                share_id if len(extraction.jobs) == 1 else f"{share_id}_{job_idx + 1}"
-            )
+        for job_idx, job in enumerate(extraction.jobs, 1):
+            job_id = share_id if len(extraction.jobs) == 1 else f"{share_id}_{job_idx}"
 
             if get_linkedin_post_by_job_id(db, job_id):
-                print(f"    [dup] Job {job_id} already in DB — skipping.")
+                skipped_count += 1
+                logger.debug(
+                    f"[LinkedIn Posts] [dup] Job {job_id} already in DB — skipping."
+                )
                 continue
 
             record = LinkedInPostJobDetails.from_extracted(
@@ -223,18 +236,38 @@ async def _scrape_link(page: Page, db, link: LinkedInPostLink) -> None:
                 job_id=job_id,
                 post_url=post_url or "",
             )
-            # TODO: actually get the posted date from the post, not just the current time
             record.posted_at_utc = datetime.now(timezone.utc).isoformat()
             new_jobs.append(record)
-            print(f"    + [{job_id}] {job.title} @ {job.company_name or 'Unknown'}")
+            saved_count += 1
+
+            salary_str = (
+                str(record.salary_min)
+                + " - "
+                + str(record.salary_max)
+                + record.salary_currency
+                if record.salary_min and record.salary_max and record.salary_currency
+                else None
+            )
+            formatted_job = format_job_log(
+                board="LinkedIn Posts",
+                title=job.title or "Untitled",
+                company=job.company_name,
+                salary=salary_str,
+                location=record.location,
+                page_info=f"post {idx}/{total_posts}",
+                item_info=f"{job_idx}/{len(extraction.jobs)}",
+            )
+            logger.debug(formatted_job)
 
         await asyncio.sleep(random.uniform(1.5, 3.0))
 
     if new_jobs:
         create_linkedin_post_details_bulk(db, new_jobs)
-        print(f"\n  Saved {len(new_jobs)} new job record(s) to the database.")
-    else:
-        print("\n  No new job records to save.")
+
+    logger.info(
+        f"[LinkedIn Posts] Target {target_idx}/{total_targets}: "
+        f"Processed {total_posts} posts ({saved_count} saved, {skipped_count} skipped)"
+    )
 
 
 async def scrape_linkedin_posts(
@@ -250,25 +283,31 @@ async def scrape_linkedin_posts(
     try:
         with SessionLocal() as db:
             total_items = len(targets)
+            logger.info(f"[LinkedIn Posts] Scraping {total_items} target keyword(s)...")
             for index, link in enumerate(targets):
                 tracker.set_current_index(index)
-                print(f"Scraping LinkedIn Posts target {index + 1} of {total_items}")
+                logger.info(
+                    f"[LinkedIn Posts] Target {index + 1}/{total_items}: keyword='{link.params.keywords}'"
+                )
                 try:
-                    await _scrape_link(page, db, link)
+                    await _scrape_link(
+                        page, db, link, target_idx=index + 1, total_targets=total_items
+                    )
                     tracker.record_success()
                 except Exception as e:
+                    logger.error(
+                        f"[LinkedIn Posts] Failed target {index + 1}/{total_items} ({link.get_url()}): {e}"
+                    )
                     if tracker.record_link_error(link=link, error=e):
                         break
 
                 if index < total_items - 1:
                     await asyncio.sleep(random.uniform(5.0, 15.0))
 
-                print("" + "=" * 50 + "\n")
-
         tracker.finalize()
 
     except Exception as e:
-        print(f"[fatal] Scraper terminated: {e}")
+        logger.error(f"[LinkedIn Posts] Error occurred during scrape run: {e}")
         raise
 
     finally:

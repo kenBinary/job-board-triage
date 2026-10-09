@@ -1,5 +1,8 @@
 from typing import Optional
 from src.common.configuration import MAX_CONSECUTIVE_ERRORS
+from src.common.logger import get_logger
+
+logger = get_logger("error_tracker")
 
 
 class ConsecutiveErrorTracker:
@@ -19,14 +22,14 @@ class ConsecutiveErrorTracker:
         (caller should stop scraping this board).
         """
         self.consecutive_errors += 1
-        print(
+        logger.warning(
             f"[{self.board_name}] Consecutive link error "
             f"{self.consecutive_errors}/{self.max_errors}."
         )
         if error:
-            print(f"[{self.board_name}] Error details: {error}")
+            logger.warning(f"[{self.board_name}] Error details: {error}")
         if self.consecutive_errors >= self.max_errors:
-            print(
+            logger.error(
                 f"[STOP] {self.max_errors} consecutive links failed for "
                 f"{self.board_name}. Stopping {self.board_name} scraping."
             )

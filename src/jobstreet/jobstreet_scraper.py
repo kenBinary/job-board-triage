@@ -3,6 +3,7 @@ import math
 import random
 from typing import List
 
+from src.common.logger import format_job_log, get_logger
 from src.db.database import SessionLocal
 from src.jobstreet.db import (
     create_jobstreet_details_bulk,
@@ -12,6 +13,8 @@ from src.jobstreet.get_jobs import fetch_jobs, WorkArrangementEnum
 from src.jobstreet.jobstreet_run_tracker import JobstreetRunTracker
 from src.jobstreet.models.jobstreet_job_details import JobStreetJobDetails
 from src.jobstreet.models.jobstreet_link import JobStreetLink, JobStreetParams
+
+logger = get_logger("jobstreet_scraper")
 
 BASE_URL = "https://ph.jobstreet.com/graphql"
 
@@ -99,82 +102,84 @@ LINKS: List[JobStreetLink] = [
 ]
 
 
-async def scrape_jobstreet_link(link: JobStreetLink) -> None:
+async def scrape_jobstreet_link(
+    link: JobStreetLink, target_idx: int, total_targets: int
+) -> None:
     """Scrapes job listings for a JobStreetLink across its configured max_page."""
-    try:
-        with SessionLocal() as db:
-            for current_page in range(1, link.max_page + 1):
-                page_url = link.get_next_page(current_page)
-                search_params = link.get_search_params(current_page)
-                print(f"Scraping JobStreet link: {page_url}")
+    with SessionLocal() as db:
+        for current_page in range(1, link.max_page + 1):
+            page_url = link.get_next_page(current_page)
+            search_params = link.get_search_params(current_page)
+            logger.debug(f"[JobStreet] Scraping link: {page_url}")
 
-                result = await fetch_jobs(search_params)
+            result = await fetch_jobs(search_params)
 
-                pagination = result.data.jobSearchV7.results.pagination
-                total_results = int(pagination.resultCount)
-                page_size = int(pagination.pageSize)
-                total_pages = (
-                    math.ceil(total_results / page_size) if page_size > 0 else 1
+            pagination = result.data.jobSearchV7.results.pagination
+            total_results = int(pagination.resultCount)
+            page_size = int(pagination.pageSize)
+            total_pages = math.ceil(total_results / page_size) if page_size > 0 else 1
+
+            job_details_list: list[JobStreetJobDetails] = []
+            jobs_in_page = result.data.jobSearchV7.results.jobs
+            total_jobs_in_page = len(jobs_in_page)
+            saved_count = 0
+            skipped_count = 0
+
+            for job_idx, job in enumerate(jobs_in_page, 1):
+                existing_job_details = get_jobstreet_details_by_job_id(db, job.id)
+                if existing_job_details:
+                    skipped_count += 1
+                    logger.debug(
+                        f"[JobStreet] [SKIP] Job {job.id} ({job.title}) already in DB"
+                    )
+                    continue
+
+                job_details = JobStreetJobDetails.from_api_data(job)
+                if any(j.job_id == job.id for j in job_details_list):
+                    skipped_count += 1
+                    continue
+
+                job_details_list.append(job_details)
+                saved_count += 1
+
+                salary_str = None
+                if job.salary and job.salary.min and job.salary.max:
+                    salary_str = f"{job.salary.currency} {job.salary.min:,} - {job.salary.max:,} ({job.salary.period})"
+
+                location_str = (
+                    job.location.displayName.text
+                    if job.location and job.location.displayName
+                    else None
                 )
+                company_str = job.advertiser.name if job.advertiser else None
 
-                print(f"  Total matching jobs: {pagination.resultCount}")
-                print(
-                    f"  Current page: {pagination.page} / Total pages: {total_pages} (Page size: {pagination.pageSize})\n"
+                formatted_job = format_job_log(
+                    board="JobStreet",
+                    title=job.title or "Untitled",
+                    company=company_str,
+                    salary=salary_str,
+                    location=location_str,
+                    page_info=f"page {current_page}/{link.max_page}",
+                    item_info=f"{job_idx}/{total_jobs_in_page}",
                 )
+                logger.debug(formatted_job)
 
-                job_details_list: list[JobStreetJobDetails] = []
+            if job_details_list:
+                create_jobstreet_details_bulk(db, job_details_list)
 
-                for job in result.data.jobSearchV7.results.jobs:
-                    print(f"[{job.id}] {job.title}")
-                    print(
-                        f"URL: https://ph.jobstreet.com/job/{job.id}"
-                        if job.id
-                        else "N/A"
-                    )
-                    existing_job_details = get_jobstreet_details_by_job_id(db, job.id)
-                    if existing_job_details:
-                        print(
-                            f"Job with ID {job.id} already exists in the database. Skipping."
-                        )
-                        print("-" * 50)
-                        continue
+            logger.info(
+                f"[JobStreet] Target {target_idx}/{total_targets} [page {current_page}/{link.max_page}]: "
+                f"Scraped {total_jobs_in_page} jobs ({saved_count} saved, {skipped_count} skipped)"
+            )
 
-                    job_details = JobStreetJobDetails.from_api_data(job)
-                    if any(j.job_id == job.id for j in job_details_list):
-                        continue
+            if current_page >= total_pages:
+                logger.debug(
+                    f"[JobStreet] Reached last available page ({total_pages}). Stopping pagination."
+                )
+                break
 
-                    job_details_list.append(job_details)
-
-                    print(
-                        f"  Company: {job.advertiser.name if job.advertiser else 'N/A'}"
-                    )
-                    print(
-                        f"  Location: {job.location.displayName.text if job.location and job.location.displayName else 'N/A'}"
-                    )
-                    if job.salary and job.salary.min and job.salary.max:
-                        print(
-                            f"  Salary: {job.salary.currency} {job.salary.min:,} - {job.salary.max:,} ({job.salary.period})"
-                        )
-                    print("-" * 50)
-
-                if job_details_list:
-                    create_jobstreet_details_bulk(db, job_details_list)
-                    print(
-                        f"  Saved {len(job_details_list)} new job(s) from page {current_page}."
-                    )
-
-                if current_page >= total_pages:
-                    print(
-                        f"  Reached last available page ({total_pages}). Stopping pagination."
-                    )
-                    break
-
-                if current_page < link.max_page:
-                    await asyncio.sleep(5)
-
-    except Exception as e:
-        print(f"Error occurred while scraping JobStreet: {e}")
-        raise
+            if current_page < link.max_page:
+                await asyncio.sleep(5)
 
 
 async def scrape_jobstreet(
@@ -186,25 +191,35 @@ async def scrape_jobstreet(
 
     try:
         total_items = len(targets)
+        logger.info(f"[JobStreet] Scraping {total_items} target link(s)...")
         for index, link in enumerate(targets):
             tracker.set_current_index(index)
-            print(f"Scraping JobStreet target {index + 1} of {total_items}")
+            query_desc = link.params.text or "All"
+            locations_desc = (
+                ", ".join(link.params.where) if link.params.where else "Any"
+            )
+            logger.info(
+                f"[JobStreet] Target {index + 1}/{total_items}: {query_desc} ({locations_desc})"
+            )
             try:
-                await scrape_jobstreet_link(link)
+                await scrape_jobstreet_link(
+                    link, target_idx=index + 1, total_targets=total_items
+                )
                 tracker.record_success()
             except Exception as e:
+                logger.error(
+                    f"[JobStreet] Failed target {index + 1}/{total_items} ({link.get_next_page(1)}): {e}"
+                )
                 if tracker.record_link_error(link=link, error=e):
                     break
 
             if index < total_items - 1:
                 await asyncio.sleep(random.uniform(4.0, 10.0))
 
-            print("" + "=" * 50 + "\n")
-
         tracker.finalize()
 
     except Exception as e:
-        print(f"Error occurred while scraping JobStreet: {e}")
+        logger.error(f"[JobStreet] Error occurred during scrape run: {e}")
 
 
 if __name__ == "__main__":

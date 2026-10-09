@@ -4,7 +4,11 @@ from typing import Any, Dict, Optional
 import typer
 
 from src.common.enums.job_board import JobBoardEnum
+from src.common.logger import get_logger, setup_logging
 from src.db.database import BaseEntity, engine
+
+logger = get_logger("scraper_app")
+
 
 from src.indeed.indeed_run_tracker import IndeedRunTracker
 from src.indeed.indeed_scraper import scrape_indeed
@@ -149,7 +153,15 @@ def main(
         "--fresh",
         help="Force fresh start, ignoring and clearing any existing retry state without prompting.",
     ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        "-v",
+        help="Enable detailed item-level verbose logs. Defaults to summary INFO logs.",
+    ),
 ):
+    setup_logging(verbose=verbose)
+
     if retry and fresh:
         raise typer.BadParameter(
             "Cannot specify both --retry and --fresh at the same time."
@@ -180,7 +192,7 @@ def main(
         if fresh:
             if has_retry_links:
                 clear_retry_state(board)
-                print(f"[{board}] Starting fresh (cleared previous retry state).")
+                logger.info(f"[{board}] Starting fresh (cleared previous retry state).")
             config = create_board_config(board, links=None, is_retry=False)
             board_configs[board] = config
         elif retry:
@@ -190,10 +202,10 @@ def main(
                     board, links=loaded_retry_links, is_retry=True
                 )
                 board_configs[board] = config
-                print(f"[{board}] Resuming from saved retry state ({count} link(s)).")
+                logger.info(f"[{board}] Resuming from saved retry state ({count} link(s)).")
             else:
                 config = create_board_config(board, links=None, is_retry=False)
-                print(f"[{board}] No retry state found; running default links.")
+                logger.info(f"[{board}] No retry state found; running default links.")
                 board_configs[board] = config
         else:
             if has_retry_links:
@@ -205,13 +217,13 @@ def main(
                     loaded = load_retry_links(board)
                     config = create_board_config(board, links=loaded, is_retry=True)
                     board_configs[board] = config
-                    print(
+                    logger.info(
                         f"[{board}] Resuming from saved retry state ({count} link(s))."
                     )
                 else:
                     config = create_board_config(board, links=None, is_retry=False)
                     board_configs[board] = config
-                    print(f"[{board}] Starting fresh with default links.")
+                    logger.info(f"[{board}] Starting fresh with default links.")
             else:
                 config = create_board_config(board, links=None, is_retry=False)
                 board_configs[board] = config

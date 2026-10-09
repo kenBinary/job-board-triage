@@ -3,12 +3,15 @@ import math
 import random
 from sqlalchemy.orm import Session
 
+from src.common.logger import format_job_log, get_logger
 from src.db.database import SessionLocal
 from src.kalibrr.db import create_kalibrr_details_bulk, get_kalibrr_details_by_job_id
 from src.kalibrr.get_jobs import fetch_jobs
 from src.kalibrr.models.kalibrr_job_details import KalibrrJobDetails
 from src.kalibrr.models.kalibrr_link import KalibrrLink, KalibrrParams
 from src.kalibrr.kalibrr_run_tracker import KalibrrRunTracker
+
+logger = get_logger("kalibrr_scraper")
 
 BASE_URL = "https://www.kalibrr.com/kjs/job_board/search"
 
@@ -64,16 +67,18 @@ LINKS: list[KalibrrLink] = [
 ]
 
 
-async def scrape_kalibrr_link(db: Session, link_target: KalibrrLink) -> None:
+async def scrape_kalibrr_link(
+    db: Session, link_target: KalibrrLink, target_idx: int, total_targets: int
+) -> None:
     """Scrape a single Kalibrr search target across up to max_page pages."""
-    print(f"Scraping Kalibrr — text: '{link_target.params.text}'")
-
     for current_page in range(1, link_target.max_page + 1):
         page_url = link_target.get_next_page(current_page)
         current_offset = link_target.params.offset + (
             (current_page - 1) * link_target.params.limit
         )
-        print(f"  Fetching page {current_page} (offset={current_offset}): {page_url}")
+        logger.debug(
+            f"[Kalibrr] Fetching page {current_page} (offset={current_offset}): {page_url}"
+        )
 
         try:
             response = await fetch_jobs(page_url)
@@ -83,33 +88,36 @@ async def scrape_kalibrr_link(db: Session, link_target: KalibrrLink) -> None:
                 math.ceil(total / link_target.params.limit) if total > 0 else 0
             )
 
-            print(
-                f"  Total jobs available: {total} | "
-                f"Page {current_page} of {max_reachable_pages}"
-            )
-
             if not response.jobs:
-                print("  No jobs returned. Stopping pagination.")
+                logger.debug("[Kalibrr] No jobs returned. Stopping pagination.")
                 break
 
             new_jobs: list[KalibrrJobDetails] = []
+            jobs_in_page = response.jobs
+            total_jobs_in_page = len(jobs_in_page)
+            saved_count = 0
+            skipped_count = 0
 
-            for job in response.jobs:
+            for job_idx, job in enumerate(jobs_in_page, 1):
                 job_id_str = str(job.id)
 
                 existing = get_kalibrr_details_by_job_id(db, job_id_str)
                 if existing:
-                    print(f"  [SKIP] [{job_id_str}] {job.name} — already in DB")
-                    print("  " + "-" * 48)
+                    skipped_count += 1
+                    logger.debug(
+                        f"[Kalibrr] [SKIP] [{job_id_str}] {job.name} already in DB"
+                    )
                     continue
 
                 if any(j.job_id == job_id_str for j in new_jobs):
+                    skipped_count += 1
                     continue
 
                 job_details = KalibrrJobDetails.from_api_data(job)
                 new_jobs.append(job_details)
+                saved_count += 1
 
-                salary_display = "N/A"
+                salary_display = None
                 if job.salary_shown and (job.base_salary or job.maximum_salary):
                     currency = job.salary_currency or ""
                     lo = f"{job.base_salary:,.0f}" if job.base_salary else "?"
@@ -117,36 +125,40 @@ async def scrape_kalibrr_link(db: Session, link_target: KalibrrLink) -> None:
                     interval = job.salary_interval or ""
                     salary_display = f"{currency} {lo} - {hi} / {interval}".strip()
 
-                location_display = job_details.location or "N/A"
+                location_display = job_details.location or None
 
-                print(f"  [{job_id_str}] {job.name}")
-                print(f"    Company  : {job.company_name or 'N/A'}")
-                print(f"    Location : {location_display}")
-                print(f"    Salary   : {salary_display}")
-                print(
-                    f"    WFH      : {job.is_work_from_home} | Hybrid: {job.is_hybrid}"
+                formatted_job = format_job_log(
+                    board="Kalibrr",
+                    title=job.name or "Untitled",
+                    company=job.company_name,
+                    salary=salary_display,
+                    location=location_display,
+                    page_info=f"page {current_page}/{link_target.max_page}",
+                    item_info=f"{job_idx}/{total_jobs_in_page}",
                 )
-                print(f"    URL      : {job_details.url}")
-                print("  " + "-" * 48)
+                logger.debug(formatted_job)
 
             if new_jobs:
                 create_kalibrr_details_bulk(db, new_jobs)
-                print(f"  Saved {len(new_jobs)} new job(s) from page {current_page}.")
+
+            logger.info(
+                f"[Kalibrr] Target {target_idx}/{total_targets} [page {current_page}/{link_target.max_page}]: "
+                f"Scraped {total_jobs_in_page} jobs ({saved_count} saved, {skipped_count} skipped)"
+            )
 
             if current_page >= max_reachable_pages:
-                print(
-                    f"  Reached last available page ({max_reachable_pages}). Stopping."
+                logger.debug(
+                    f"[Kalibrr] Reached last available page ({max_reachable_pages}). Stopping."
                 )
                 break
 
             if current_page < link_target.max_page:
                 delay = random.uniform(5.0, 10.0)
-                print(f"  Sleeping {delay:.1f}s before next page...")
                 await asyncio.sleep(delay)
 
         except Exception as e:
-            print(
-                f"  Error on page {current_page} for '{link_target.params.text}': {e}"
+            logger.error(
+                f"[Kalibrr] Error on page {current_page} for '{link_target.params.text}': {e}"
             )
             raise
 
@@ -161,27 +173,32 @@ async def scrape_kalibrr(
     try:
         with SessionLocal() as db:
             total = len(targets)
+            logger.info(f"[Kalibrr] Scraping {total} target link(s)...")
             for index, link_target in enumerate(targets):
                 tracker.set_current_index(index)
-                print("=" * 50)
+                logger.info(
+                    f"[Kalibrr] Target {index + 1}/{total}: '{link_target.params.text or 'All'}'"
+                )
                 try:
-                    await scrape_kalibrr_link(db, link_target)
+                    await scrape_kalibrr_link(
+                        db, link_target, target_idx=index + 1, total_targets=total
+                    )
                     tracker.record_success()
                 except Exception as e:
+                    logger.error(
+                        f"[Kalibrr] Failed target {index + 1}/{total} ({link_target.get_next_page(1)}): {e}"
+                    )
                     if tracker.record_link_error(link=link_target, error=e):
                         break
 
                 if index < total - 1:
                     delay = random.uniform(4.0, 8.0)
-                    print(f"Sleeping {delay:.1f}s before next search target...")
                     await asyncio.sleep(delay)
 
-        print("=" * 50)
-        print("Kalibrr scraping complete.")
         tracker.finalize()
 
     except Exception as e:
-        print(f"Error occurred while scraping Kalibrr: {e}")
+        logger.error(f"[Kalibrr] Error occurred during scrape run: {e}")
 
 
 if __name__ == "__main__":

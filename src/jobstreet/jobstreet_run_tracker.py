@@ -5,7 +5,10 @@ from pathlib import Path
 from src.common.configuration import MAX_CONSECUTIVE_ERRORS
 from src.common.enums.job_board import JobBoardEnum
 from src.common.error_tracker import ConsecutiveErrorTracker
+from src.common.logger import get_logger
 from src.jobstreet.models.jobstreet_link import JobStreetLink
+
+logger = get_logger("jobstreet_tracker")
 
 
 class JobstreetRunTracker(ConsecutiveErrorTracker):
@@ -52,7 +55,7 @@ class JobstreetRunTracker(ConsecutiveErrorTracker):
         )
         combined = self.failed_links + remaining_unvisited
         self._save_retry_links(combined)
-        print(
+        logger.info(
             f"[{self.board_name}] Saved {len(combined)} link(s) to retry state: {self._FILE_PATH}"
         )
 
@@ -76,7 +79,9 @@ class JobstreetRunTracker(ConsecutiveErrorTracker):
                 return None
             return [JobStreetLink.from_json(item) for item in data]
         except Exception as e:
-            print(f"[JOBSTREET] Failed to load retry links from {cls._FILE_PATH}: {e}")
+            logger.error(
+                f"[JOBSTREET] Failed to load retry links from {cls._FILE_PATH}: {e}"
+            )
             return None
 
     @classmethod
@@ -85,7 +90,9 @@ class JobstreetRunTracker(ConsecutiveErrorTracker):
             try:
                 cls._FILE_PATH.unlink()
             except OSError as e:
-                print(f"[JOBSTREET] Warning: failed to delete {cls._FILE_PATH}: {e}")
+                logger.warning(
+                    f"[JOBSTREET] Warning: failed to delete {cls._FILE_PATH}: {e}"
+                )
 
     def finalize(self) -> None:
         if self.halted:
@@ -93,12 +100,12 @@ class JobstreetRunTracker(ConsecutiveErrorTracker):
 
         if self.failed_links:
             self._save_retry_links(self.failed_links)
-            print(
+            logger.warning(
                 f"[{self.board_name}] Saved {len(self.failed_links)} failed link(s) to retry state: {self._FILE_PATH}"
             )
         elif self.is_retry_run:
             self.clear_retry_state()
-            print(
+            logger.info(
                 f"[{self.board_name}] All retry links completed successfully. Cleared retry state."
             )
 

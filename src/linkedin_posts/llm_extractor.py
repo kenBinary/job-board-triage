@@ -10,9 +10,12 @@ load_dotenv()
 
 import litellm
 
+from src.common.logger import get_logger
 from .models.extraction_schemas import (
     PostJobExtractionResult,
 )
+
+logger = get_logger("linkedin_llm_extractor")
 
 GEMINI_MODEL = "gemini/gemini-3.5-flash-lite"
 
@@ -66,7 +69,7 @@ def _fetch_image_as_data_url(url: str) -> Optional[str]:
             encoded = base64.b64encode(raw).decode("utf-8")
             return f"data:{content_type};base64,{encoded}"
     except Exception as e:
-        print(f"  [image] Failed to fetch {url[:80]}...: {e}")
+        logger.warning(f"  [image] Failed to fetch {url[:80]}...: {e}")
         return None
 
 
