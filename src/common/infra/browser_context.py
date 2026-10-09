@@ -19,6 +19,10 @@ class CamoufoxSingleton:
                     persistent_context=True,
                     user_data_dir=user_data_dir,
                     humanize=True,
+                    firefox_user_prefs={
+                        "widget.windows.window_occlusion_tracking.enabled": False,
+                        "dom.timeout.enable_budget_timer_throttling": False,
+                    },
                 )
                 cls._context = await cls._cm.__aenter__()
             return cls._context
@@ -41,4 +45,11 @@ class CamoufoxSingleton:
     async def create_tab(cls) -> Page:
         context = await cls.get_context()
         assert isinstance(context, BrowserContext)
-        return await context.new_page()
+        page = await context.new_page()
+        await page.add_init_script("""
+            Object.defineProperty(document, 'hasFocus', {
+                value: () => true,
+                writable: false
+            });
+        """)
+        return page
