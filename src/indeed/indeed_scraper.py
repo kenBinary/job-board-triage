@@ -124,11 +124,10 @@ async def scrape_indeed(
     targets = links if links is not None else LINKS
     tracker = IndeedRunTracker(links=targets, is_retry_run=is_retry)
 
+    context = await CamoufoxSingleton.get_context()
+    assert isinstance(context, BrowserContext)
+    page = await CamoufoxSingleton.get_primary_page()
     try:
-        context = await CamoufoxSingleton.get_context()
-        assert isinstance(context, BrowserContext)
-        page = await CamoufoxSingleton.get_primary_page()
-
         with SessionLocal() as db:
             total_items = len(targets)
             for index, link in enumerate(targets):
@@ -202,6 +201,8 @@ async def scrape_indeed(
             tracker.finalize()
     except Exception as e:
         print(f"Error occurred while scraping Indeed: {e}")
+    finally:
+        await page.close()
 
 
 if __name__ == "__main__":

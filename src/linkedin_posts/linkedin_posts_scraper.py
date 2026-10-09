@@ -244,11 +244,10 @@ async def scrape_linkedin_posts(
     targets = links if links is not None else DEFAULT_LINKS
     tracker = LinkedinPostsRunTracker(links=targets, is_retry_run=is_retry)
 
+    context = await CamoufoxSingleton.get_context()
+    assert isinstance(context, BrowserContext)
+    page = await context.new_page()
     try:
-        context = await CamoufoxSingleton.get_context()
-        assert isinstance(context, BrowserContext)
-        page = await context.new_page()
-
         with SessionLocal() as db:
             total_items = len(targets)
             for index, link in enumerate(targets):
@@ -271,6 +270,9 @@ async def scrape_linkedin_posts(
     except Exception as e:
         print(f"[fatal] Scraper terminated: {e}")
         raise
+
+    finally:
+        await page.close()
 
 
 if __name__ == "__main__":
