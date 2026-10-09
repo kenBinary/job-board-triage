@@ -141,8 +141,17 @@ async def _scrape_link(
     new_jobs: list[LinkedInPostJobDetails] = []
     saved_count = 0
     skipped_count = 0
+    share_id_failure_count = 0
 
     for idx, element in enumerate(post_elements, 1):
+        if share_id_failure_count >= 3:
+            logger.warning(
+                "[LinkedIn Posts] Share ID extraction failed 3 times. Stopping further processing."
+            )
+            raise Exception(
+                "Share ID extraction failed 3 times. Possible LinkedIn layout change or access issue."
+            )
+
         element_id = await element.get_attribute("id")
         if not element_id:
             continue
@@ -177,8 +186,10 @@ async def _scrape_link(
             try:
                 post_url, share_id = extract_linkedin_post_data(response_text)
                 logger.debug(f"[LinkedIn Posts] share_id={share_id}, url={post_url}")
-            except ValueError as e:
-                logger.warning(f"[LinkedIn Posts] extract_linkedin_post_data: {e}")
+            except Exception as e:
+                logger.warning(
+                    f"[LinkedIn Posts] Failed to extract share_id from control menu response: {e}"
+                )
 
             await asyncio.sleep(random.uniform(0.5, 1.5))
             await page.keyboard.press("Escape")
@@ -194,6 +205,7 @@ async def _scrape_link(
             await asyncio.sleep(
                 random.uniform(POST_CLICK_DELAY_MIN, POST_CLICK_DELAY_MAX)
             )
+            share_id_failure_count += 1
             continue
 
         post_text = await element.evaluate("el => el.textContent") or ""
