@@ -26,6 +26,9 @@ from src.linkedin_posts.linkedin_posts_scraper import scrape_linkedin_posts
 
 app = typer.Typer()
 
+SLOW_BOARDS = {JobBoardEnum.Indeed, JobBoardEnum.LinkedinPosts}
+FAST_BOARDS = set(JobBoardEnum) - SLOW_BOARDS
+
 SCRAPERS = {
     JobBoardEnum.JobStreet: scrape_jobstreet,
     JobBoardEnum.Indeed: scrape_indeed,
@@ -142,6 +145,16 @@ def main(
         "-b",
         help="Comma-separated list of job boards to scrape (e.g. --board=indeed,olj). Default runs all.",
     ),
+    fast: bool = typer.Option(
+        False,
+        "--fast",
+        help="Run only fast scrapers (everything except indeed and linkedin-posts).",
+    ),
+    slow: bool = typer.Option(
+        False,
+        "--slow",
+        help="Run only slow scrapers (indeed and linkedin-posts).",
+    ),
     retry: bool = typer.Option(
         False,
         "--retry",
@@ -167,7 +180,21 @@ def main(
             "Cannot specify both --retry and --fresh at the same time."
         )
 
-    if board:
+    if fast and slow:
+        raise typer.BadParameter(
+            "Cannot specify both --fast and --slow at the same time."
+        )
+
+    if (fast or slow) and board:
+        raise typer.BadParameter(
+            "Cannot specify --board together with --fast or --slow."
+        )
+
+    if fast:
+        requested_boards = [b for b in JobBoardEnum if b in FAST_BOARDS]
+    elif slow:
+        requested_boards = [b for b in JobBoardEnum if b in SLOW_BOARDS]
+    elif board:
         requested_boards = [b.strip().lower() for b in board.split(",") if b.strip()]
         if not requested_boards:
             raise typer.BadParameter("No valid board names provided.")
@@ -202,7 +229,9 @@ def main(
                     board, links=loaded_retry_links, is_retry=True
                 )
                 board_configs[board] = config
-                logger.info(f"[{board}] Resuming from saved retry state ({count} link(s)).")
+                logger.info(
+                    f"[{board}] Resuming from saved retry state ({count} link(s))."
+                )
             else:
                 config = create_board_config(board, links=None, is_retry=False)
                 logger.info(f"[{board}] No retry state found; running default links.")
