@@ -26,6 +26,8 @@ logger = get_logger("facebook_posts_scraper")
 
 POST_CLICK_DELAY_MIN: float = 1.5
 POST_CLICK_DELAY_MAX: float = 3.0
+MAX_EXISTING_POSTS_PER_SCROLL: int = 3
+MAX_FAILED_POSTS_PER_LINK: int = 3
 
 DEFAULT_LINKS: list[FacebookPostLink] = [
     FacebookPostLink(
@@ -180,8 +182,10 @@ async def _scrape_link(
     skipped_count = 0
     total_cards_processed = 0
     seen_post_ids: set[str] = set()
+    failed_posts_count = 0
 
     for scroll_idx in range(link.max_scrolls):
+        existing_posts_in_scroll = 0
         logger.debug(
             f"[Facebook Posts] Scroll {scroll_idx + 1}/{link.max_scrolls} — extracting cards..."
         )
@@ -241,9 +245,17 @@ async def _scrape_link(
 
             if get_facebook_post_by_job_id(db, post_id):
                 skipped_count += 1
+                existing_posts_in_scroll += 1
                 logger.debug(
                     f"[Facebook Posts] [dup] post_id={post_id} already in DB — skipping."
                 )
+                if existing_posts_in_scroll > MAX_EXISTING_POSTS_PER_SCROLL:
+                    logger.debug(
+                        f"[Facebook Posts] More than "
+                        f"{MAX_EXISTING_POSTS_PER_SCROLL} existing posts found in "
+                        f"scroll {scroll_idx + 1}; skipping the rest of this scroll."
+                    )
+                    break
                 continue
 
             buttons = await card.query_selector_all('[role="button"]')
@@ -266,9 +278,15 @@ async def _scrape_link(
                     f"jobs={len(extraction.jobs)}"
                 )
             except Exception as e:
+                failed_posts_count += 1
                 logger.warning(
                     f"[Facebook Posts] LLM extraction failed for post {post_id}: {e}"
                 )
+                if failed_posts_count > MAX_FAILED_POSTS_PER_LINK:
+                    raise RuntimeError(
+                        f"More than {MAX_FAILED_POSTS_PER_LINK} posts failed while "
+                        f"scraping {url}"
+                    ) from e
                 await asyncio.sleep(
                     random.uniform(POST_CLICK_DELAY_MIN, POST_CLICK_DELAY_MAX)
                 )
@@ -332,8 +350,9 @@ async def _scrape_link(
             await card.evaluate("el => el.setAttribute('refrigerated', 'true')")
             await asyncio.sleep(random.uniform(0.5, 1.0))
 
-        await page.evaluate(_JS_SCROLL_FEED_BOTTOM)
-        await asyncio.sleep(random.uniform(0.5, 1.0))
+        if scroll_idx < link.max_scrolls - 1:
+            await page.evaluate(_JS_SCROLL_FEED_BOTTOM)
+            await asyncio.sleep(random.uniform(0.5, 1.0))
 
     logger.info(
         f"[Facebook Posts] Target {target_idx}/{total_targets}: "
