@@ -26,8 +26,8 @@ logger = get_logger("linkedin_posts_scraper")
 
 PROFILE_DIR = "./camoufox_profile"
 
-POST_CLICK_DELAY_MIN: float = 2.0
-POST_CLICK_DELAY_MAX: float = 3.5
+POST_CLICK_DELAY_MIN: float = 0.5
+POST_CLICK_DELAY_MAX: float = 1.5
 
 CONTROL_MENU_URL_FRAGMENT = "feedUpdateControlMenuRequest"
 
@@ -239,7 +239,7 @@ async def _process_post_card(
         )
         logger.debug(formatted_job)
 
-    await asyncio.sleep(random.uniform(1.0, 2.0))
+    await asyncio.sleep(random.uniform(0.5, 1.0))
     return True, saved_count, skipped_count
 
 
@@ -306,7 +306,7 @@ async def _scrape_link(
             break
 
         await _scroll_to_last_card(page)
-        await asyncio.sleep(random.uniform(1.5, 3.0))
+        await asyncio.sleep(random.uniform(0.5, 1.0))
 
     logger.info(
         f"[LinkedIn Posts] Target {target_idx}/{total_targets}: "
@@ -324,6 +324,7 @@ async def scrape_linkedin_posts(
     context = await CamoufoxSingleton.get_context()
     assert isinstance(context, BrowserContext)
     page = await context.new_page()
+
     try:
         with SessionLocal() as db:
             total_items = len(targets)
