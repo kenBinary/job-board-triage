@@ -28,7 +28,11 @@ from src.facebook_posts.facebook_posts_scraper import scrape_facebook_posts
 
 app = typer.Typer()
 
-SLOW_BOARDS = {JobBoardEnum.Indeed, JobBoardEnum.LinkedinPosts}
+SLOW_BOARDS = {
+    JobBoardEnum.Indeed,
+    JobBoardEnum.LinkedinPosts,
+    JobBoardEnum.FacebookPosts,
+}
 FAST_BOARDS = set(JobBoardEnum) - SLOW_BOARDS
 
 SCRAPERS = {
