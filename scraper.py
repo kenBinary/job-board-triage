@@ -23,10 +23,16 @@ from src.olj.olj_run_tracker import OljRunTracker
 from src.olj.olj_scraper import scrape_olj
 from src.linkedin_posts.linkedin_posts_run_tracker import LinkedinPostsRunTracker
 from src.linkedin_posts.linkedin_posts_scraper import scrape_linkedin_posts
+from src.facebook_posts.facebook_posts_run_tracker import FacebookPostsRunTracker
+from src.facebook_posts.facebook_posts_scraper import scrape_facebook_posts
 
 app = typer.Typer()
 
-SLOW_BOARDS = {JobBoardEnum.Indeed, JobBoardEnum.LinkedinPosts}
+SLOW_BOARDS = {
+    JobBoardEnum.Indeed,
+    JobBoardEnum.LinkedinPosts,
+    JobBoardEnum.FacebookPosts,
+}
 FAST_BOARDS = set(JobBoardEnum) - SLOW_BOARDS
 
 SCRAPERS = {
@@ -36,6 +42,7 @@ SCRAPERS = {
     JobBoardEnum.Mynimo: scrape_mynimo,
     JobBoardEnum.Kalibrr: scrape_kalibrr,
     JobBoardEnum.LinkedinPosts: scrape_linkedin_posts,
+    JobBoardEnum.FacebookPosts: scrape_facebook_posts,
 }
 
 
@@ -78,6 +85,9 @@ def initialize_retry_state(board_name: str) -> tuple[bool, int]:
         case JobBoardEnum.LinkedinPosts.value:
             has_retry_links = LinkedinPostsRunTracker.has_retry_links()
             count = LinkedinPostsRunTracker.get_retry_count()
+        case JobBoardEnum.FacebookPosts.value:
+            has_retry_links = FacebookPostsRunTracker.has_retry_links()
+            count = FacebookPostsRunTracker.get_retry_count()
         case _:
             has_retry_links = False
             count = 0
@@ -98,6 +108,8 @@ def clear_retry_state(board_name: str) -> None:
             KalibrrRunTracker.clear_retry_state()
         case JobBoardEnum.LinkedinPosts.value:
             LinkedinPostsRunTracker.clear_retry_state()
+        case JobBoardEnum.FacebookPosts.value:
+            FacebookPostsRunTracker.clear_retry_state()
         case _:
             pass
 
@@ -116,6 +128,8 @@ def load_retry_links(board_name: str) -> list[Any] | None:
             return KalibrrRunTracker.load_retry_links()
         case JobBoardEnum.LinkedinPosts.value:
             return LinkedinPostsRunTracker.load_retry_links()
+        case JobBoardEnum.FacebookPosts.value:
+            return FacebookPostsRunTracker.load_retry_links()
         case _:
             return None
 
@@ -131,6 +145,7 @@ def create_board_config(
             | JobBoardEnum.Mynimo.value
             | JobBoardEnum.Kalibrr.value
             | JobBoardEnum.LinkedinPosts.value
+            | JobBoardEnum.FacebookPosts.value
         ):
             return BoardConfig(links=links, is_retry=is_retry)
         case _:

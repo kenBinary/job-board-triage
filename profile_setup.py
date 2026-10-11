@@ -22,5 +22,9 @@ with Camoufox(
     page.goto("https://www.linkedin.com/login")
     input("3. Log into LinkedIn in the browser window, then press Enter here...")
 
+    # --- Site 4 ---
+    page.goto("https://www.facebook.com")
+    input("3. Log into LinkedIn in the browser window, then press Enter here...")
+
     print("All sessions have been saved into the profile!")
     print("Session saved successfully!")
