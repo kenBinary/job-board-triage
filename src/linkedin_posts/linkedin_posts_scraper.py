@@ -2,7 +2,8 @@ import asyncio
 from datetime import datetime, timezone
 import random
 from typing import Optional
-from playwright.async_api import BrowserContext, Page
+from playwright.async_api import BrowserContext, ElementHandle, Page
+from sqlalchemy.orm import Session
 
 from src.common.infra.browser_context import CamoufoxSingleton
 from src.common.logger import format_job_log, get_logger
@@ -13,7 +14,7 @@ from src.linkedin_posts.models.linkedin_post_link import (
     LinkedInPostParams,
 )
 from .db import (
-    create_linkedin_post_details_bulk,
+    create_linkedin_post_details,
     get_linkedin_post_by_job_id,
 )
 from .llm_extractor import extract_jobs_from_post
@@ -25,8 +26,8 @@ logger = get_logger("linkedin_posts_scraper")
 
 PROFILE_DIR = "./camoufox_profile"
 
-POST_CLICK_DELAY_MIN: float = 2.0
-POST_CLICK_DELAY_MAX: float = 3.5
+POST_CLICK_DELAY_MIN: float = 0.5
+POST_CLICK_DELAY_MAX: float = 1.5
 
 CONTROL_MENU_URL_FRAGMENT = "feedUpdateControlMenuRequest"
 
@@ -104,24 +105,146 @@ async def _get_image_urls_from_element(page: Page, element_id: str) -> list[str]
     )
 
 
-async def _scroll_feed(page: Page, link: LinkedInPostLink) -> None:
-    """Scroll the LinkedIn feed according to the link's scroll config."""
-    logger.debug("[LinkedIn Posts] Scrolling feed...")
-    current_scroll = 0
-    while link.should_continue(current_scroll):
-        await page.evaluate("""() => {
-            const allDivs = document.querySelectorAll('div[id^="expanded"]');
-            if (allDivs.length > 0) {
-                allDivs[allDivs.length - 1].scrollIntoView({ behavior: 'smooth', block: 'end' });
-            }
-        }""")
-        await asyncio.sleep(random.uniform(0.5, 2.5))
-        current_scroll += 1
-    logger.debug("[LinkedIn Posts] Scroll complete.")
+async def _scroll_to_last_card(page: Page) -> None:
+    """Scroll the last expanded post card into view to trigger lazy loading."""
+    await page.evaluate("""() => {
+        const allDivs = document.querySelectorAll('div[id^="expanded"]');
+        if (allDivs.length > 0) {
+            allDivs[allDivs.length - 1].scrollIntoView({ behavior: 'smooth', block: 'end' });
+        }
+    }""")
+
+
+async def _process_post_card(
+    page: Page,
+    db: Session,
+    element: ElementHandle,
+    element_id: str,
+    card_num: int,
+) -> tuple[bool, int, int]:
+    """
+    Process a single LinkedIn post card: extract share_id, run LLM extraction,
+    and immediately persist each discovered job to the database.
+
+    Returns:
+        (share_id_ok, saved_count, skipped_count)
+        share_id_ok is False when share_id could not be obtained for this card.
+    """
+    saved_count = 0
+    skipped_count = 0
+
+    logger.debug(f"[LinkedIn Posts] [card {card_num}] Processing post: #{element_id}")
+
+    post_url: Optional[str] = None
+    share_id: Optional[str] = None
+
+    try:
+        control_btn = await element.query_selector(
+            'button[aria-label*="Open control menu" i]'
+        )
+        if not control_btn:
+            logger.debug(
+                "[LinkedIn Posts] [skip] No control menu button found — skipping."
+            )
+            return False, saved_count, skipped_count
+
+        async with page.expect_response(
+            lambda r: CONTROL_MENU_URL_FRAGMENT in r.url,
+            timeout=15000,
+        ) as resp_info:
+            await control_btn.click()
+
+        response = await resp_info.value
+        response_body = await response.body()
+        response_text = response_body.decode("utf-8", errors="replace")
+
+        try:
+            post_url, share_id = extract_linkedin_post_data(response_text)
+            logger.debug(f"[LinkedIn Posts] share_id={share_id}, url={post_url}")
+        except Exception as e:
+            logger.warning(
+                f"[LinkedIn Posts] Failed to extract share_id from control menu response: {e}"
+            )
+            raise Exception(
+                f"Failed to extract share_id from control menu response: {e}"
+            )
+
+        await asyncio.sleep(random.uniform(0.5, 1.0))
+        await page.keyboard.press("Escape")
+
+    except Exception as e:
+        logger.warning(f"[LinkedIn Posts] Control menu interception failed: {e}")
+        await page.keyboard.press("Escape")
+
+    if not share_id:
+        logger.debug("[LinkedIn Posts] [skip] Could not obtain share_id — skipping.")
+        await asyncio.sleep(random.uniform(POST_CLICK_DELAY_MIN, POST_CLICK_DELAY_MAX))
+        return False, saved_count, skipped_count
+
+    post_text = await element.evaluate("el => el.textContent") or ""
+    post_text = post_text.strip()
+
+    # TODO: Get Image Base64 directly without downloading
+    image_urls = await _get_image_urls_from_element(page, element_id)
+    logger.debug(f"[LinkedIn Posts] Images found: {len(image_urls)}")
+
+    try:
+        extraction = await extract_jobs_from_post(post_text, image_urls)
+    except Exception as e:
+        logger.warning(f"[LinkedIn Posts] LLM extraction failed: {e}")
+        await asyncio.sleep(random.uniform(POST_CLICK_DELAY_MIN, POST_CLICK_DELAY_MAX))
+        return True, saved_count, skipped_count
+
+    if not extraction.is_job_post:
+        logger.debug("[LinkedIn Posts] [skip] LLM determined this is not a job post.")
+        await asyncio.sleep(random.uniform(POST_CLICK_DELAY_MIN, POST_CLICK_DELAY_MAX))
+        return True, saved_count, skipped_count
+
+    for job_idx, job in enumerate(extraction.jobs, 1):
+        job_id = share_id if len(extraction.jobs) == 1 else f"{share_id}_{job_idx}"
+
+        if get_linkedin_post_by_job_id(db, job_id):
+            skipped_count += 1
+            logger.debug(
+                f"[LinkedIn Posts] [dup] Job {job_id} already in DB — skipping."
+            )
+            continue
+
+        record = LinkedInPostJobDetails.from_extracted(
+            job=job,
+            job_id=job_id,
+            post_url=post_url or "",
+        )
+        record.posted_at_utc = datetime.now(timezone.utc).isoformat()
+
+        create_linkedin_post_details(db, record)
+        saved_count += 1
+
+        salary_str = (
+            str(record.salary_min)
+            + " - "
+            + str(record.salary_max)
+            + record.salary_currency
+            if record.salary_min and record.salary_max and record.salary_currency
+            else None
+        )
+        formatted_job = format_job_log(
+            board="LinkedIn Posts",
+            title=job.title or "Untitled",
+            company=job.company_name,
+            salary=salary_str,
+            location=record.location,
+            page_info=f"card {card_num}",
+            item_info=f"{job_idx}/{len(extraction.jobs)}",
+        )
+        logger.debug(formatted_job)
+
+    await asyncio.sleep(random.uniform(0.5, 1.0))
+    return True, saved_count, skipped_count
 
 
 async def _scrape_link(
-    page: Page, db, link: LinkedInPostLink, target_idx: int, total_targets: int
+    page: Page, db: Session, link: LinkedInPostLink, target_idx: int, total_targets: int
 ) -> None:
     url = link.get_url()
     logger.debug(f"[LinkedIn Posts] Scraping link: {url}")
@@ -132,153 +255,62 @@ async def _scrape_link(
     if "authwall" in page.url.lower() or "login" in page.url.lower():
         input("LinkedIn requires login. Please log in and press Enter to continue...")
 
-    await _scroll_feed(page, link)
-
-    post_elements = await page.query_selector_all('div[id^="expanded"]')
-    total_posts = len(post_elements)
-    logger.debug(f"[LinkedIn Posts] Found {total_posts} post elements.")
-
-    new_jobs: list[LinkedInPostJobDetails] = []
+    seen_element_ids: set[str] = set()
+    consecutive_share_id_failures = 0
     saved_count = 0
     skipped_count = 0
-    share_id_failure_count = 0
+    processed_count = 0
+    current_scroll = 0
 
-    for idx, element in enumerate(post_elements, 1):
-        if share_id_failure_count >= 3:
-            logger.warning(
-                "[LinkedIn Posts] Share ID extraction failed 3 times. Stopping further processing."
-            )
-            raise Exception(
-                "Share ID extraction failed 3 times. Possible LinkedIn layout change or access issue."
-            )
+    while True:
+        post_elements = await page.query_selector_all('div[id^="expanded"]')
 
-        element_id = await element.get_attribute("id")
-        if not element_id:
-            continue
+        new_cards: list[tuple[ElementHandle, str]] = []
+        for el in post_elements:
+            el_id = await el.get_attribute("id")
+            if el_id and el_id not in seen_element_ids:
+                seen_element_ids.add(el_id)
+                new_cards.append((el, el_id))
 
         logger.debug(
-            f"[LinkedIn Posts] [{idx}/{total_posts}] Processing post: #{element_id}"
+            f"[LinkedIn Posts] Scroll {current_scroll}: "
+            f"{len(new_cards)} new card(s) discovered (total seen: {len(seen_element_ids)})"
         )
 
-        post_url: Optional[str] = None
-        share_id: Optional[str] = None
-
-        try:
-            control_btn = await element.query_selector(
-                'button[aria-label*="Open control menu" i]'
+        for element, element_id in new_cards:
+            processed_count += 1
+            share_id_ok, s, sk = await _process_post_card(
+                page, db, element, element_id, card_num=processed_count
             )
-            if not control_btn:
-                logger.debug(
-                    "[LinkedIn Posts] [skip] No control menu button found — skipping."
-                )
-                continue
 
-            async with page.expect_response(
-                lambda r: CONTROL_MENU_URL_FRAGMENT in r.url,
-                timeout=15000,
-            ) as resp_info:
-                await control_btn.click()
+            if not share_id_ok:
+                consecutive_share_id_failures += 1
+                if consecutive_share_id_failures >= 3:
+                    logger.warning(
+                        "[LinkedIn Posts] Share ID extraction failed 3 consecutive times. "
+                        "Stopping — possible LinkedIn layout change or access issue."
+                    )
+                    raise Exception(
+                        "Share ID extraction failed 3 consecutive times. "
+                        "Possible LinkedIn layout change or access issue."
+                    )
+            else:
+                consecutive_share_id_failures = 0
 
-            response = await resp_info.value
-            response_body = await response.body()
-            response_text = response_body.decode("utf-8", errors="replace")
+            saved_count += s
+            skipped_count += sk
 
-            try:
-                post_url, share_id = extract_linkedin_post_data(response_text)
-                logger.debug(f"[LinkedIn Posts] share_id={share_id}, url={post_url}")
-            except Exception as e:
-                logger.warning(
-                    f"[LinkedIn Posts] Failed to extract share_id from control menu response: {e}"
-                )
+        current_scroll += 1
+        if not link.should_continue(current_scroll):
+            logger.debug("[LinkedIn Posts] Max scrolls reached. Stopping.")
+            break
 
-            await asyncio.sleep(random.uniform(0.5, 1.5))
-            await page.keyboard.press("Escape")
-
-        except Exception as e:
-            logger.warning(f"[LinkedIn Posts] Control menu interception failed: {e}")
-            await page.keyboard.press("Escape")
-
-        if not share_id:
-            logger.debug(
-                "[LinkedIn Posts] [skip] Could not obtain share_id — skipping."
-            )
-            await asyncio.sleep(
-                random.uniform(POST_CLICK_DELAY_MIN, POST_CLICK_DELAY_MAX)
-            )
-            share_id_failure_count += 1
-            continue
-
-        post_text = await element.evaluate("el => el.textContent") or ""
-        post_text = post_text.strip()
-
-        # TODO: Get Image Base64 directly without downloading
-        image_urls = await _get_image_urls_from_element(page, element_id)
-        logger.debug(f"[LinkedIn Posts] Images found: {len(image_urls)}")
-
-        try:
-            extraction = await extract_jobs_from_post(post_text, image_urls)
-        except Exception as e:
-            logger.warning(f"[LinkedIn Posts] LLM extraction failed: {e}")
-            await asyncio.sleep(
-                random.uniform(POST_CLICK_DELAY_MIN, POST_CLICK_DELAY_MAX)
-            )
-            continue
-
-        if not extraction.is_job_post:
-            logger.debug(
-                "[LinkedIn Posts] [skip] LLM determined this is not a job post."
-            )
-            await asyncio.sleep(
-                random.uniform(POST_CLICK_DELAY_MIN, POST_CLICK_DELAY_MAX)
-            )
-            continue
-
-        for job_idx, job in enumerate(extraction.jobs, 1):
-            job_id = share_id if len(extraction.jobs) == 1 else f"{share_id}_{job_idx}"
-
-            if get_linkedin_post_by_job_id(db, job_id):
-                skipped_count += 1
-                logger.debug(
-                    f"[LinkedIn Posts] [dup] Job {job_id} already in DB — skipping."
-                )
-                continue
-
-            record = LinkedInPostJobDetails.from_extracted(
-                job=job,
-                job_id=job_id,
-                post_url=post_url or "",
-            )
-            record.posted_at_utc = datetime.now(timezone.utc).isoformat()
-            new_jobs.append(record)
-            saved_count += 1
-
-            salary_str = (
-                str(record.salary_min)
-                + " - "
-                + str(record.salary_max)
-                + record.salary_currency
-                if record.salary_min and record.salary_max and record.salary_currency
-                else None
-            )
-            formatted_job = format_job_log(
-                board="LinkedIn Posts",
-                title=job.title or "Untitled",
-                company=job.company_name,
-                salary=salary_str,
-                location=record.location,
-                page_info=f"post {idx}/{total_posts}",
-                item_info=f"{job_idx}/{len(extraction.jobs)}",
-            )
-            logger.debug(formatted_job)
-
-        await asyncio.sleep(random.uniform(1.5, 3.0))
-
-    if new_jobs:
-        create_linkedin_post_details_bulk(db, new_jobs)
+        await _scroll_to_last_card(page)
+        await asyncio.sleep(random.uniform(0.5, 1.0))
 
     logger.info(
         f"[LinkedIn Posts] Target {target_idx}/{total_targets}: "
-        f"Processed {total_posts} posts ({saved_count} saved, {skipped_count} skipped)"
+        f"Processed {processed_count} posts ({saved_count} saved, {skipped_count} skipped)"
     )
 
 
@@ -292,6 +324,7 @@ async def scrape_linkedin_posts(
     context = await CamoufoxSingleton.get_context()
     assert isinstance(context, BrowserContext)
     page = await context.new_page()
+
     try:
         with SessionLocal() as db:
             total_items = len(targets)

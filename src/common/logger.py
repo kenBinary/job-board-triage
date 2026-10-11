@@ -6,15 +6,13 @@ LOG_DIR = Path(".data/logs")
 LOG_FILE = LOG_DIR / "scraper.log"
 
 
-def setup_logging(verbose: bool = False) -> None:
+def setup_logging(verbose: bool = False, write_to_file: bool = False) -> None:
     """
     Configure application-wide logging.
 
     - Console output: INFO by default, DEBUG if verbose=True.
-    - File output: Always DEBUG to .data/logs/scraper.log.
+    - File output: DEBUG to .data/logs/scraper.log when write_to_file=True.
     """
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
 
@@ -31,18 +29,24 @@ def setup_logging(verbose: bool = False) -> None:
     console_handler.setFormatter(console_formatter)
     root_logger.addHandler(console_handler)
 
-    file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
-    file_handler.setLevel(logging.DEBUG)
-    file_formatter = logging.Formatter(
-        fmt="%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-    file_handler.setFormatter(file_formatter)
-    root_logger.addHandler(file_handler)
+    if write_to_file:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+        file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+        file_handler.setLevel(logging.DEBUG)
+        file_formatter = logging.Formatter(
+            fmt="%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+        file_handler.setFormatter(file_formatter)
+        root_logger.addHandler(file_handler)
 
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("playwright").setLevel(logging.WARNING)
     logging.getLogger("camoufox").setLevel(logging.WARNING)
+    logging.getLogger("LiteLLM").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def get_logger(name: str) -> logging.Logger:
