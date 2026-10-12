@@ -1,4 +1,5 @@
 import asyncio
+import random
 from camoufox import AsyncCamoufox
 from playwright.async_api import BrowserContext, Page
 
@@ -42,7 +43,14 @@ class CamoufoxSingleton:
         assert isinstance(context, BrowserContext)
         if not cls._is_primary_page_used:
             cls._is_primary_page_used = True
-        return context.pages[0] if context.pages else await context.new_page()
+        page = context.pages[0] if context.pages else await context.new_page()
+        await page.add_init_script("""
+            Object.defineProperty(document, 'hasFocus', {
+                value: () => true,
+                writable: false
+            });
+        """)
+        return page
 
     @classmethod
     async def create_new_page(cls) -> Page:
@@ -60,4 +68,5 @@ class CamoufoxSingleton:
                 writable: false
             });
         """)
+        await asyncio.sleep(random.uniform(1.0, 2.5))
         return page
