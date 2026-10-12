@@ -9,6 +9,7 @@ class CamoufoxSingleton:
     _context = None
     _cm = None
     _lock = asyncio.Lock()
+    _is_primary_page_used = False
 
     @classmethod
     async def get_context(cls, user_data_dir: str = PROFILE_DIR):
@@ -39,12 +40,19 @@ class CamoufoxSingleton:
     async def get_primary_page(cls) -> Page:
         context = await cls.get_context()
         assert isinstance(context, BrowserContext)
+        if not cls._is_primary_page_used:
+            cls._is_primary_page_used = True
         return context.pages[0] if context.pages else await context.new_page()
 
     @classmethod
-    async def create_tab(cls) -> Page:
+    async def create_new_page(cls) -> Page:
         context = await cls.get_context()
         assert isinstance(context, BrowserContext)
+
+        if not cls._is_primary_page_used:
+            cls._is_primary_page_used = True
+            return await cls.get_primary_page()
+
         page = await context.new_page()
         await page.add_init_script("""
             Object.defineProperty(document, 'hasFocus', {
