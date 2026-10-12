@@ -24,95 +24,109 @@ from .models.facebook_post_job_details import FacebookPostJobDetails
 
 logger = get_logger("facebook_posts_scraper")
 
-POST_CLICK_DELAY_MIN: float = 1.5
-POST_CLICK_DELAY_MAX: float = 3.0
+POST_CLICK_DELAY_MIN: float = 0.5
+POST_CLICK_DELAY_MAX: float = 1.5
 MAX_EXISTING_POSTS_PER_SCROLL: int = 3
 MAX_FAILED_POSTS_PER_LINK: int = 3
 
 DEFAULT_LINKS: list[FacebookPostLink] = [
     FacebookPostLink(
+        max_scrolls=5,
         params=FacebookPostParams(
             query="hiringph",
             link_type=FacebookLinkType.HASHTAG,
-        )
+        ),
     ),
     FacebookPostLink(
+        max_scrolls=5,
         params=FacebookPostParams(
             query="workfromhomeph",
             link_type=FacebookLinkType.HASHTAG,
-        )
+        ),
     ),
     FacebookPostLink(
+        max_scrolls=5,
         params=FacebookPostParams(
             query="remotejobsph",
             link_type=FacebookLinkType.HASHTAG,
-        )
+        ),
     ),
     FacebookPostLink(
+        max_scrolls=5,
         params=FacebookPostParams(
             query="techjobs",
             link_type=FacebookLinkType.HASHTAG,
-        )
+        ),
     ),
     FacebookPostLink(
+        max_scrolls=5,
         params=FacebookPostParams(
             query="developerjobs",
             link_type=FacebookLinkType.HASHTAG,
-        )
+        ),
     ),
     FacebookPostLink(
+        max_scrolls=5,
         params=FacebookPostParams(
             query="wearehiring",
             link_type=FacebookLinkType.HASHTAG,
-        )
+        ),
     ),
     FacebookPostLink(
+        max_scrolls=5,
         params=FacebookPostParams(
             query="jobsph",
             link_type=FacebookLinkType.HASHTAG,
-        )
+        ),
     ),
     FacebookPostLink(
+        max_scrolls=5,
         params=FacebookPostParams(
             query="cdojob",
             link_type=FacebookLinkType.HASHTAG,
-        )
+        ),
     ),
     FacebookPostLink(
+        max_scrolls=5,
         params=FacebookPostParams(
             query="cdojobopportunity",
             link_type=FacebookLinkType.HASHTAG,
-        )
+        ),
     ),
     FacebookPostLink(
+        max_scrolls=5,
         params=FacebookPostParams(
             query="cebujobs",
             link_type=FacebookLinkType.HASHTAG,
-        )
+        ),
     ),
     FacebookPostLink(
+        max_scrolls=5,
         params=FacebookPostParams(
             query="hiringnow",
             link_type=FacebookLinkType.HASHTAG,
-        )
+        ),
     ),
     FacebookPostLink(
+        max_scrolls=5,
         params=FacebookPostParams(
             query="jobsincebu",
             link_type=FacebookLinkType.HASHTAG,
-        )
+        ),
     ),
     FacebookPostLink(
+        max_scrolls=5,
         params=FacebookPostParams(
             query="philippinesjobs",
             link_type=FacebookLinkType.HASHTAG,
-        )
+        ),
     ),
     FacebookPostLink(
+        max_scrolls=5,
         params=FacebookPostParams(
             query="jobphilippines",
             link_type=FacebookLinkType.HASHTAG,
-        )
+        ),
     ),
 ]
 
@@ -348,7 +362,6 @@ async def _scrape_link(
             seen_post_ids.add(post_id)
             total_cards_processed += 1
             await card.evaluate("el => el.setAttribute('refrigerated', 'true')")
-            await asyncio.sleep(random.uniform(0.5, 1.0))
 
         if scroll_idx < link.max_scrolls - 1:
             await page.evaluate(_JS_SCROLL_FEED_BOTTOM)
@@ -368,9 +381,7 @@ async def scrape_facebook_posts(
     targets = links if links is not None else DEFAULT_LINKS
     tracker = FacebookPostsRunTracker(links=targets, is_retry_run=is_retry)
 
-    context = await CamoufoxSingleton.get_context()
-    assert isinstance(context, BrowserContext)
-    page = await context.new_page()
+    page = await CamoufoxSingleton.create_new_page()
 
     try:
         with SessionLocal() as db:
