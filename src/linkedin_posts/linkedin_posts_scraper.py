@@ -285,6 +285,7 @@ async def _scrape_link(
 
             if not share_id_ok:
                 consecutive_share_id_failures += 1
+                await asyncio.sleep(random.uniform(1.5, 3.0))
                 if consecutive_share_id_failures >= 3:
                     logger.warning(
                         "[LinkedIn Posts] Share ID extraction failed 3 consecutive times. "
