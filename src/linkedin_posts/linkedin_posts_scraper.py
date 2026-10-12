@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime, timezone
 import random
 from typing import Optional
-from playwright.async_api import BrowserContext, ElementHandle, Page
+from playwright.async_api import ElementHandle, Page
 from sqlalchemy.orm import Session
 
 from src.common.infra.browser_context import CamoufoxSingleton
@@ -321,9 +321,7 @@ async def scrape_linkedin_posts(
     targets = links if links is not None else DEFAULT_LINKS
     tracker = LinkedinPostsRunTracker(links=targets, is_retry_run=is_retry)
 
-    context = await CamoufoxSingleton.get_context()
-    assert isinstance(context, BrowserContext)
-    page = await context.new_page()
+    page = await CamoufoxSingleton.create_new_page()
 
     try:
         with SessionLocal() as db:
