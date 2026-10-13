@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import random
 from datetime import datetime, timezone
 from urllib.parse import urlparse, parse_qs
@@ -158,15 +159,17 @@ async def _check_authwall(page: Page) -> None:
         input("  [Waiting for login] Press Enter once you are logged in: ")
 
 
-async def _click_see_more_button(buttons: List[ElementHandle]) -> None:
+async def _click_see_more_button(buttons: List[ElementHandle]) -> bool:
     for btn in buttons:
         btn_text = await btn.inner_text()
         if btn_text.strip().lower() == "see more":
             try:
                 await btn.click()
-                break
+                return True
             except Exception as e:
                 logger.warning(f"  [card] Failed to click 'See More' button: {e}")
+                return False
+    return False
 
 
 def _extract_post_id_from_href(href: str) -> Optional[str]:
@@ -324,11 +327,16 @@ async def _scrape_link(
             logger.debug(f"  [card] Extracted image URLs: {image_urls}")
 
             buttons = await card.query_selector_all('[role="button"]')
-            await _click_see_more_button(buttons)
+            see_more_clicked = await _click_see_more_button(buttons)
+            card_screenshot: Optional[str] = None
+            if see_more_clicked:
+                await asyncio.sleep(random.uniform(0.2, 0.5))
+                screenshot_bytes = await card.screenshot(type="png")
+                card_screenshot = base64.b64encode(screenshot_bytes).decode("ascii")
 
             logger.debug(
                 f"[Facebook Posts] Processing card post_id={post_id} "
-                f"images={len(image_urls)}"
+                f"images={len(image_urls)} screenshot={see_more_clicked}"
             )
 
             text_content = await card.inner_text()
@@ -337,7 +345,13 @@ async def _scrape_link(
             )
 
             try:
-                extraction = await extract_jobs_from_post(text_content, image_urls)
+                extraction = await extract_jobs_from_post(
+                    text_content,
+                    image_urls,
+                    additional_image_context=(
+                        [card_screenshot] if card_screenshot else None
+                    ),
+                )
                 logger.debug(
                     f"  [LLM] post_id={post_id} is_job_post={extraction.is_job_post} "
                     f"jobs={len(extraction.jobs)}"
@@ -388,8 +402,8 @@ async def _scrape_link(
                     job_id=job_id,
                     post_url=post_url or "",
                 )
-                # TODO: Consider using the actual post timestamp if available, instead of the current time.
-                record.posted_at_utc = datetime.now(timezone.utc).isoformat()
+                if not record.posted_at_utc:
+                    record.posted_at_utc = datetime.now(timezone.utc).isoformat()
                 new_jobs.append(record)
                 saved_count += 1
 

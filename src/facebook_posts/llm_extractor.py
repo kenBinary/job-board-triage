@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import random
+from datetime import datetime, timezone
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -30,6 +31,9 @@ Rules:
 - For short_description, write a concise 1-2 sentence summary of the role.
 - For description, include all responsibilities, qualifications, and requirements.
 - Extract any contact email or application link if explicitly mentioned.
+- Extract the post date shown on the Facebook card screenshot as posted_date_utc.
+  Convert absolute and relative dates (for example, "2h" or "Yesterday") to an
+  ISO-8601 UTC string. Return null only when the date is unreadable.
 - Assign exactly one category to each job:
   - "Engineering & IT": Software, Hardware, Data, Systems
   - "Sales & Marketing": Growth, Account Execs, Advertising
@@ -74,20 +78,45 @@ def _fetch_image_as_data_url(url: str) -> Optional[str]:
 async def extract_jobs_from_post(
     text: str,
     image_urls: list[str],
+    additional_image_context: Optional[list[str]] = None,
 ) -> PostJobExtractionResult:
     """
     Call LiteLLM (Gemini) to extract structured job data from a Facebook post.
 
     :param text:       Raw text content scraped from the post card (via innerText).
     :param image_urls: List of resolved image URLs .
+    :param additional_image_context: List of additional context for the images in base64 format.
     :returns:          A PostJobExtractionResult with is_job_post flag and jobs list.
     """
-    content: list[dict] = [{"type": "text", "text": text}]
+    reference_time = datetime.now(timezone.utc).isoformat()
+    content: list[dict] = [
+        {
+            "type": "text",
+            "text": (
+                f"{text}\n\n"
+                f"Current UTC time for resolving relative post dates: {reference_time}"
+            ),
+        }
+    ]
 
     for url in image_urls:
         data_url = _fetch_image_as_data_url(url)
         await asyncio.sleep(random.uniform(1.0, 3.5))
         if data_url:
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": data_url},
+                }
+            )
+
+    if additional_image_context:
+        for b64_data in additional_image_context:
+            data_url = (
+                b64_data
+                if b64_data.startswith("data:")
+                else f"data:image/png;base64,{b64_data}"
+            )
             content.append(
                 {
                     "type": "image_url",

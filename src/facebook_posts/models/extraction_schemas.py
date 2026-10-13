@@ -65,6 +65,14 @@ class ExtractedJobListing(BaseModel):
             "'Trades, Labor & Field Services', or 'Others'."
         ),
     )
+    posted_date_utc: Optional[str] = Field(
+        default=None,
+        description=(
+            "The date and time shown on the Facebook post card, converted to an "
+            "ISO-8601 UTC string. Use the card screenshot for relative dates such "
+            "as '2h' or 'Yesterday'. Null only when the date is unreadable."
+        ),
+    )
 
 
 class PostJobExtractionResult(BaseModel):

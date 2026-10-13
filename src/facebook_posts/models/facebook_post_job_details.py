@@ -45,6 +45,7 @@ class FacebookPostJobDetails(JobDetails):
             salary_currency=job.salary_currency,
             salary_period=job.salary_period,
             work_type=job.work_type,
+            posted_at_utc=job.posted_date_utc,
             is_new=True,
             job_id=job_id,
         )
