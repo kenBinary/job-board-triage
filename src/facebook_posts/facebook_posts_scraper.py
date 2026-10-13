@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import re
 from typing import List, Optional
 
-from playwright.async_api import BrowserContext, ElementHandle, Page
+from playwright.async_api import ElementHandle, Page
 
 from src.common.infra.browser_context import CamoufoxSingleton
 from src.common.logger import format_job_log, get_logger
@@ -27,102 +27,102 @@ logger = get_logger("facebook_posts_scraper")
 POST_CLICK_DELAY_MIN: float = 0.5
 POST_CLICK_DELAY_MAX: float = 1.5
 MAX_EXISTING_POSTS_PER_SCROLL: int = 3
-MAX_FAILED_POSTS_PER_LINK: int = 3
+MAX_FAILED_POSTS_PER_LINK: int = 10
 
 DEFAULT_LINKS: list[FacebookPostLink] = [
     FacebookPostLink(
-        max_scrolls=5,
+        max_scrolls=3,
         params=FacebookPostParams(
             query="hiringph",
             link_type=FacebookLinkType.HASHTAG,
         ),
     ),
     FacebookPostLink(
-        max_scrolls=5,
+        max_scrolls=3,
         params=FacebookPostParams(
             query="workfromhomeph",
             link_type=FacebookLinkType.HASHTAG,
         ),
     ),
     FacebookPostLink(
-        max_scrolls=5,
+        max_scrolls=3,
         params=FacebookPostParams(
             query="remotejobsph",
             link_type=FacebookLinkType.HASHTAG,
         ),
     ),
     FacebookPostLink(
-        max_scrolls=5,
+        max_scrolls=3,
         params=FacebookPostParams(
             query="techjobs",
             link_type=FacebookLinkType.HASHTAG,
         ),
     ),
     FacebookPostLink(
-        max_scrolls=5,
+        max_scrolls=3,
         params=FacebookPostParams(
             query="developerjobs",
             link_type=FacebookLinkType.HASHTAG,
         ),
     ),
     FacebookPostLink(
-        max_scrolls=5,
+        max_scrolls=3,
         params=FacebookPostParams(
             query="wearehiring",
             link_type=FacebookLinkType.HASHTAG,
         ),
     ),
     FacebookPostLink(
-        max_scrolls=5,
+        max_scrolls=3,
         params=FacebookPostParams(
             query="jobsph",
             link_type=FacebookLinkType.HASHTAG,
         ),
     ),
     FacebookPostLink(
-        max_scrolls=5,
+        max_scrolls=3,
         params=FacebookPostParams(
             query="cdojob",
             link_type=FacebookLinkType.HASHTAG,
         ),
     ),
     FacebookPostLink(
-        max_scrolls=5,
+        max_scrolls=3,
         params=FacebookPostParams(
             query="cdojobopportunity",
             link_type=FacebookLinkType.HASHTAG,
         ),
     ),
     FacebookPostLink(
-        max_scrolls=5,
+        max_scrolls=3,
         params=FacebookPostParams(
             query="cebujobs",
             link_type=FacebookLinkType.HASHTAG,
         ),
     ),
     FacebookPostLink(
-        max_scrolls=5,
+        max_scrolls=3,
         params=FacebookPostParams(
             query="hiringnow",
             link_type=FacebookLinkType.HASHTAG,
         ),
     ),
     FacebookPostLink(
-        max_scrolls=5,
+        max_scrolls=3,
         params=FacebookPostParams(
             query="jobsincebu",
             link_type=FacebookLinkType.HASHTAG,
         ),
     ),
     FacebookPostLink(
-        max_scrolls=5,
+        max_scrolls=3,
         params=FacebookPostParams(
             query="philippinesjobs",
             link_type=FacebookLinkType.HASHTAG,
         ),
     ),
     FacebookPostLink(
-        max_scrolls=5,
+        max_scrolls=3,
         params=FacebookPostParams(
             query="jobphilippines",
             link_type=FacebookLinkType.HASHTAG,
@@ -197,6 +197,7 @@ async def _scrape_link(
     total_cards_processed = 0
     seen_post_ids: set[str] = set()
     failed_posts_count = 0
+    current_card_index = 0
 
     for scroll_idx in range(link.max_scrolls):
         existing_posts_in_scroll = 0
@@ -205,22 +206,42 @@ async def _scrape_link(
         )
 
         post_cards = await page.query_selector_all(
-            '[role="feed"] [data-virtualized="false"]:not([refrigerated="true"])'
+            '[role="feed"] [data-virtualized="false"]'
         )
+        post_cards_length = len(post_cards)
+        post_cards = post_cards[current_card_index:]
+        logger.debug(f"  [scroll] Found {len(post_cards)} new card(s) in this scroll.")
+
         for card in post_cards:
+            await card.scroll_into_view_if_needed()
+            logger.debug(
+                f"  [card] Processing card {current_card_index + 1}/{post_cards_length} in scroll {scroll_idx + 1}/{link.max_scrolls}..."
+            )
+            if current_card_index + 1 == post_cards_length:
+                await card.evaluate("el => el.style.border = '2px solid red'")
+            else:
+                await card.evaluate("el => el.style.border = '2px solid green'")
+
             new_jobs: list[FacebookPostJobDetails] = []
 
-            anchor_tags = (await card.query_selector_all("a"))[:6]
+            anchor_tags = (await card.query_selector_all("a"))[2:6]
             # * Hovering over the anchor tags because the link with /posts/<post_id> is sometimes hidden until you hover over the card. This is a workaround for that.
-            for a in reversed(anchor_tags):
-                box = await a.bounding_box()
-                if box:
-                    await page.mouse.move(
-                        box["x"] + box["width"] / 2,
-                        box["y"] + box["height"] / 2,
-                        steps=1,
-                    )
-                await page.keyboard.press("Escape")
+
+            try:
+                for a in reversed(anchor_tags):
+                    box = await a.bounding_box()
+                    if box:
+                        await page.mouse.move(
+                            box["x"] + box["width"] / 2,
+                            box["y"] + box["height"] / 2,
+                            steps=1,
+                        )
+                    await asyncio.sleep(random.uniform(0.1, 0.3))
+                    await page.mouse.move(-1000, -1000)
+            except Exception as e:
+                logger.warning(f"  [card] Failed to hover over anchor tags: {e}")
+                # TODO: Consider whether to continue or raise an exception here. For now, we log the warning and continue.
+                continue
 
             post_url = None
             anchor_tags_v2 = await card.query_selector_all("a")
@@ -231,8 +252,20 @@ async def _scrape_link(
                         # TODO: this includes tracking parameters; consider stripping them for a cleaner URL
                         post_url = href
                         break
+                    else:
+                        logger.debug(
+                            f"  [card] Anchor href does not contain '/posts/': {href}"
+                        )
                 except Exception as e:
                     logger.warning(f"  [card] Failed to get href from anchor: {e}")
+
+            if not post_url:
+                logger.debug(
+                    "[Facebook Posts] [skip] No post permalink found — skipping card."
+                )
+                current_card_index += 1
+                # TODO: Consider whether to raise an exception here instead of skipping, as this might indicate a change in Facebook's DOM structure.
+                continue
 
             post_id = _extract_post_id_from_href(post_url) if post_url else None
             logger.debug(f"  [card] Extracted post_id: {post_id} from link: {post_url}")
@@ -240,22 +273,16 @@ async def _scrape_link(
                 logger.debug(
                     "[Facebook Posts] [skip] No post permalink found — skipping card."
                 )
+                current_card_index += 1
+                # TODO: Consider whether to raise an exception here instead of skipping, as this might indicate a change in Facebook's DOM structure.
                 continue
 
             if post_id in seen_post_ids:
                 logger.debug(
                     f"[Facebook Posts] [skip] post_id={post_id} already processed in this run — skipping."
                 )
+                current_card_index += 1
                 continue
-
-            image_tags = await card.query_selector_all("img")
-            image_urls = []
-            for img in image_tags:
-                img_src = await img.get_attribute("src")
-                if img_src and img_src.startswith("https://scontent"):
-                    image_urls.append(img_src)
-            logger.debug(f"  [card] Found {len(image_urls)} image(s) in card.")
-            logger.debug(f"  [card] Extracted image URLs: {image_urls}")
 
             if get_facebook_post_by_job_id(db, post_id):
                 skipped_count += 1
@@ -270,7 +297,17 @@ async def _scrape_link(
                         f"scroll {scroll_idx + 1}; skipping the rest of this scroll."
                     )
                     break
+                current_card_index += 1
                 continue
+
+            image_tags = await card.query_selector_all("img")
+            image_urls = []
+            for img in image_tags:
+                img_src = await img.get_attribute("src")
+                if img_src and img_src.startswith("https://scontent"):
+                    image_urls.append(img_src)
+            logger.debug(f"  [card] Found {len(image_urls)} image(s) in card.")
+            logger.debug(f"  [card] Extracted image URLs: {image_urls}")
 
             buttons = await card.query_selector_all('[role="button"]')
             await _click_see_more_button(buttons)
@@ -304,7 +341,11 @@ async def _scrape_link(
                 await asyncio.sleep(
                     random.uniform(POST_CLICK_DELAY_MIN, POST_CLICK_DELAY_MAX)
                 )
-                continue
+                raise Exception(
+                    f"LLM extraction failed for post {post_id} in card "
+                    f"{current_card_index + 1}/{post_cards_length} in scroll "
+                    f"{scroll_idx + 1}/{link.max_scrolls}: {e}"
+                ) from e
 
             if not extraction.is_job_post:
                 logger.debug(
@@ -313,6 +354,7 @@ async def _scrape_link(
                 await asyncio.sleep(
                     random.uniform(POST_CLICK_DELAY_MIN, POST_CLICK_DELAY_MAX)
                 )
+                current_card_index += 1
                 continue
 
             for job_idx, job in enumerate(extraction.jobs, 1):
@@ -361,11 +403,12 @@ async def _scrape_link(
 
             seen_post_ids.add(post_id)
             total_cards_processed += 1
-            await card.evaluate("el => el.setAttribute('refrigerated', 'true')")
+            current_card_index += 1
+            failed_posts_count = 0
 
         if scroll_idx < link.max_scrolls - 1:
             await page.evaluate(_JS_SCROLL_FEED_BOTTOM)
-            await asyncio.sleep(random.uniform(0.5, 1.0))
+            await asyncio.sleep(random.uniform(1.0, 1.5))
 
     logger.info(
         f"[Facebook Posts] Target {target_idx}/{total_targets}: "
