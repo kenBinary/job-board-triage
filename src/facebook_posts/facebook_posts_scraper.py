@@ -1,6 +1,7 @@
 import asyncio
 import random
 from datetime import datetime, timezone
+from urllib.parse import urlparse, parse_qs
 import re
 from typing import List, Optional
 
@@ -169,10 +170,25 @@ async def _click_see_more_button(buttons: List[ElementHandle]) -> None:
 
 
 def _extract_post_id_from_href(href: str) -> Optional[str]:
-    """Extracts the Facebook post ID from a URL or link string."""
-    match = re.search(r"/posts/([a-zA-Z0-9]+)", href)
-    if match:
-        return match.group(1)
+    """Extracts the Facebook post ID or story_fbid from a URL or link string."""
+    if not href:
+        return None
+
+    parsed = urlparse(href)
+
+    if parsed.query:
+        query_params = parse_qs(parsed.query)
+        for param in ["story_fbid", "fbid"]:
+            if param in query_params and query_params[param]:
+                return query_params[param][0]
+
+    path_match = re.search(r"/(?:posts|permalink|story)/([a-zA-Z0-9_.-]+)", parsed.path)
+    if path_match:
+        return path_match.group(1)
+
+    raw_match = re.search(r"/posts/([a-zA-Z0-9_-]+)", href)
+    if raw_match:
+        return raw_match.group(1)
 
     return None
 
@@ -226,7 +242,6 @@ async def _scrape_link(
 
             anchor_tags = (await card.query_selector_all("a"))[2:6]
             # * Hovering over the anchor tags because the link with /posts/<post_id> is sometimes hidden until you hover over the card. This is a workaround for that.
-
             try:
                 for a in reversed(anchor_tags):
                     box = await a.bounding_box()
@@ -247,15 +262,14 @@ async def _scrape_link(
             anchor_tags_v2 = await card.query_selector_all("a")
             for a in anchor_tags_v2:
                 try:
+                    # TODO: this includes tracking links, which may not be the actual post URL. Consider filtering out tracking links if necessary.
                     href = await a.get_attribute("href")
-                    if href and "/posts/" in href:
-                        # TODO: this includes tracking parameters; consider stripping them for a cleaner URL
+                    if not href:
+                        continue
+
+                    if "/posts/" in href or "/permalink" in href:
                         post_url = href
                         break
-                    else:
-                        logger.debug(
-                            f"  [card] Anchor href does not contain '/posts/': {href}"
-                        )
                 except Exception as e:
                     logger.warning(f"  [card] Failed to get href from anchor: {e}")
 
