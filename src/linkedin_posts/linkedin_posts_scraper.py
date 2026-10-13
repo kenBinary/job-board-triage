@@ -279,6 +279,7 @@ async def _scrape_link(
 
         for element, element_id in new_cards:
             processed_count += 1
+            await element.scroll_into_view_if_needed()
             share_id_ok, s, sk = await _process_post_card(
                 page, db, element, element_id, card_num=processed_count
             )
