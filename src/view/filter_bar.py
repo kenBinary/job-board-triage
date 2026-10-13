@@ -12,6 +12,7 @@ from src.view.indeed.indeed_state import indeed_state
 from src.view.jobstreet.jobstreet_state import jobstreet_state
 from src.view.kalibrr.kalibrr_state import kalibrr_state
 from src.view.linkedin.linkedin_state import linkedin_state
+from src.view.facebook.facebook_state import facebook_state
 from src.view.mynimo.mynimo_state import mynimo_state
 from src.view.olj.olj_state import olj_state
 
@@ -39,18 +40,29 @@ def filter_bar_view(on_filter_changed):
                 kalibrr_state.get_jobs(filters=filters)
             case "LinkedIn":
                 linkedin_state.get_jobs(is_new=e.value)
+            case "Facebook":
+                facebook_state.get_jobs(is_new=e.value)
         global_state.show_new_only = e.value
 
         on_filter_changed()
 
     def on_category_changed(e):
-        linkedin_state.category = None if e.value == "All Categories" else e.value
-        linkedin_state.get_jobs(
-            category=linkedin_state.category,
-            is_new=global_state.show_new_only,
-            skip=0,
-            limit=linkedin_state.paginated_jobs.page_size,
-        )
+        if global_state.job_board == "LinkedIn":
+            linkedin_state.category = None if e.value == "All Categories" else e.value
+            linkedin_state.get_jobs(
+                category=linkedin_state.category,
+                is_new=global_state.show_new_only,
+                skip=0,
+                limit=linkedin_state.paginated_jobs.page_size,
+            )
+        elif global_state.job_board == "Facebook":
+            facebook_state.category = None if e.value == "All Categories" else e.value
+            facebook_state.get_jobs(
+                category=facebook_state.category,
+                is_new=global_state.show_new_only,
+                skip=0,
+                limit=facebook_state.paginated_jobs.page_size,
+            )
         on_filter_changed()
 
     with ui.card().classes(
@@ -66,6 +78,14 @@ def filter_bar_view(on_filter_changed):
 
                 if global_state.job_board == "LinkedIn":
                     current_category = linkedin_state.category or "All Categories"
+                    ui.select(
+                        options=LINKEDIN_CATEGORIES,
+                        value=current_category,
+                        on_change=on_category_changed,
+                    ).props("dense outlined options-dense").classes("w-64 text-xs")
+
+                if global_state.job_board == "Facebook":
+                    current_category = facebook_state.category or "All Categories"
                     ui.select(
                         options=LINKEDIN_CATEGORIES,
                         value=current_category,

@@ -14,6 +14,8 @@ from src.view.kalibrr.kalibrr_job_card import kalibrr_job_card
 from src.view.kalibrr.kalibrr_state import kalibrr_state
 from src.view.linkedin.linkedin_job_card import linkedin_job_card
 from src.view.linkedin.linkedin_state import linkedin_state
+from src.view.facebook.facebook_job_card import facebook_job_card
+from src.view.facebook.facebook_state import facebook_state
 from src.view.mynimo.mynimo_job_card import mynimo_job_card
 from src.view.mynimo.mynimo_state import mynimo_state
 from src.view.olj.olj_job_card import olj_job_card
@@ -69,6 +71,13 @@ def render_pagination_bar(
                     skip=(page - 1) * page_size,
                     limit=page_size,
                 )
+            case "Facebook":
+                page = max(1, min(page, total_pages))
+                facebook_state.get_jobs(
+                    is_new=global_state.show_new_only,
+                    skip=(page - 1) * page_size,
+                    limit=page_size,
+                )
         on_page_change()
 
     def handle_page_size_change(size: int):
@@ -91,6 +100,10 @@ def render_pagination_bar(
                 kalibrr_state.get_jobs(filters=filters, skip=0, limit=size)
             case "LinkedIn":
                 linkedin_state.get_jobs(
+                    is_new=global_state.show_new_only, skip=0, limit=size
+                )
+            case "Facebook":
+                facebook_state.get_jobs(
                     is_new=global_state.show_new_only, skip=0, limit=size
                 )
         on_page_change()
@@ -203,6 +216,8 @@ def job_list_view(on_status_change, on_page_change):
             jobCount = kalibrr_state.total_count
         case "LinkedIn":
             jobCount = linkedin_state.total_count
+        case "Facebook":
+            jobCount = facebook_state.total_count
 
     if jobCount == 0:
         with ui.card().classes(
@@ -272,4 +287,14 @@ def job_list_view(on_status_change, on_page_change):
                     page_size=linkedin_state.paginated_jobs.page_size,
                     total_count=linkedin_state.paginated_jobs.total,
                     total_pages=linkedin_state.paginated_jobs.total_pages,
+                )
+            case "Facebook":
+                for job in facebook_state.jobs:
+                    facebook_job_card(job, on_refresh=on_status_change)
+                render_pagination_bar(
+                    on_page_change=on_page_change,
+                    current_page=facebook_state.paginated_jobs.page,
+                    page_size=facebook_state.paginated_jobs.page_size,
+                    total_count=facebook_state.paginated_jobs.total,
+                    total_pages=facebook_state.paginated_jobs.total_pages,
                 )

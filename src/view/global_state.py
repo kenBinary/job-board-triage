@@ -2,7 +2,7 @@ from typing import Literal
 
 
 class GlobalState:
-    job_board: Literal["Jobstreet", "Indeed", "OLJ", "Mynimo", "Kalibrr", "LinkedIn"]
+    job_board: Literal["Jobstreet", "Indeed", "OLJ", "Mynimo", "Kalibrr", "LinkedIn", "Facebook"]
 
     def __init__(self):
         self.job_board = "Jobstreet"
