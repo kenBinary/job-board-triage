@@ -17,19 +17,28 @@ from src.facebook_posts.models.facebook_post_link import (
     FacebookPostLink,
     FacebookPostParams,
 )
+from src.common.media_utils import fetch_image_as_data_url
 from .db import (
     create_facebook_post_details_bulk,
     get_facebook_post_by_job_id,
 )
-from .llm_extractor import extract_jobs_from_post
+from .facebook_llm_extractor import (
+    DEFAULT_FACEBOOK_SYSTEM_PROMPT,
+    FacebookLLMExtractor,
+)
 from .models.facebook_post_job_details import FacebookPostJobDetails
 
 logger = get_logger("facebook_posts_scraper")
+
+facebook_llm_extractor = FacebookLLMExtractor(
+    prompt_template=DEFAULT_FACEBOOK_SYSTEM_PROMPT
+)
 
 POST_CLICK_DELAY_MIN: float = 0.5
 POST_CLICK_DELAY_MAX: float = 1.5
 MAX_EXISTING_POSTS_PER_SCROLL: int = 3
 MAX_FAILED_POSTS_PER_LINK: int = 10
+MAX_SKIPPED_POSTS_PER_LINK: int = 10
 
 DEFAULT_LINKS: list[FacebookPostLink] = [
     FacebookPostLink(
@@ -231,6 +240,20 @@ async def _scrape_link(
         post_cards = post_cards[current_card_index:]
         logger.debug(f"  [scroll] Found {len(post_cards)} new card(s) in this scroll.")
 
+        if post_cards_length == 0:
+            logger.warning(
+                f"[Facebook Posts] No post cards found in scroll {scroll_idx + 1}/{link.max_scrolls} for link: {url}"
+            )
+            raise RuntimeError(
+                f"No post cards found in scroll {scroll_idx + 1}/{link.max_scrolls} for link: {url}"
+            )
+
+        if skipped_count > MAX_SKIPPED_POSTS_PER_LINK:
+            logger.info(
+                f"[Facebook Posts] More than {MAX_SKIPPED_POSTS_PER_LINK} posts skipped in link {url}; stopping further processing of this link."
+            )
+            break
+
         for card in post_cards:
             await card.scroll_into_view_if_needed()
             logger.debug(
@@ -331,12 +354,33 @@ async def _scrape_link(
             card_screenshot: Optional[str] = None
             if see_more_clicked:
                 await asyncio.sleep(random.uniform(0.2, 0.5))
-                screenshot_bytes = await card.screenshot(type="png")
+                screenshot_bytes = await card.screenshot()
                 card_screenshot = base64.b64encode(screenshot_bytes).decode("ascii")
+
+            image_data_urls: list[str] = []
+            for url in image_urls:
+                try:
+                    data_url = fetch_image_as_data_url(url)
+                    await asyncio.sleep(random.uniform(0.0, 1.0))
+                    if data_url:
+                        image_data_urls.append(data_url)
+                except Exception as img_err:
+                    logger.warning(
+                        f"  [card] Failed to fetch image data url for {url[:60]}: {img_err}"
+                    )
+
+            if card_screenshot:
+                screenshot_data_url = (
+                    card_screenshot
+                    if card_screenshot.startswith("data:")
+                    else f"data:image/png;base64,{card_screenshot}"
+                )
+                image_data_urls.append(screenshot_data_url)
 
             logger.debug(
                 f"[Facebook Posts] Processing card post_id={post_id} "
-                f"images={len(image_urls)} screenshot={see_more_clicked}"
+                f"images={len(image_urls)} screenshot={see_more_clicked} "
+                f"total_data_urls={len(image_data_urls)}"
             )
 
             text_content = await card.inner_text()
@@ -345,12 +389,9 @@ async def _scrape_link(
             )
 
             try:
-                extraction = await extract_jobs_from_post(
-                    text_content,
-                    image_urls,
-                    additional_image_context=(
-                        [card_screenshot] if card_screenshot else None
-                    ),
+                extraction = await facebook_llm_extractor.extract_jobs_from_post(
+                    text=text_content,
+                    image_data_urls=image_data_urls,
                 )
                 logger.debug(
                     f"  [LLM] post_id={post_id} is_job_post={extraction.is_job_post} "
@@ -478,7 +519,7 @@ async def scrape_facebook_posts(
                         break
 
                 if index < total_items - 1:
-                    await asyncio.sleep(random.uniform(2.0, 5.0))
+                    await asyncio.sleep(random.uniform(3.5, 8.0))
 
         tracker.finalize()
 

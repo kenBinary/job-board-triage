@@ -13,22 +13,26 @@ from src.linkedin_posts.models.linkedin_post_link import (
     LinkedInPostLink,
     LinkedInPostParams,
 )
+from src.common.media_utils import fetch_image_as_data_url
 from .db import (
     create_linkedin_post_details,
     get_linkedin_post_by_job_id,
 )
-from .llm_extractor import extract_jobs_from_post
+from .linkedin_llm_extractor import (
+    DEFAULT_LINKEDIN_SYSTEM_PROMPT,
+    LinkedInLLMExtractor,
+)
 from .models.linkedin_post_job_details import LinkedInPostJobDetails
 from .utils import extract_linkedin_post_data
 
 logger = get_logger("linkedin_posts_scraper")
 
-
-PROFILE_DIR = "./camoufox_profile"
+linkedin_llm_extractor = LinkedInLLMExtractor(
+    prompt_template=DEFAULT_LINKEDIN_SYSTEM_PROMPT
+)
 
 POST_CLICK_DELAY_MIN: float = 0.5
 POST_CLICK_DELAY_MAX: float = 1.5
-
 CONTROL_MENU_URL_FRAGMENT = "feedUpdateControlMenuRequest"
 
 DEFAULT_LINKS: list[LinkedInPostLink] = [
@@ -188,11 +192,25 @@ async def _process_post_card(
     image_urls = await _get_image_urls_from_element(page, element_id)
     logger.debug(f"[LinkedIn Posts] Images found: {len(image_urls)}")
 
+    image_data_urls: list[str] = []
+    for url in image_urls:
+        try:
+            data_url = fetch_image_as_data_url(url)
+            await asyncio.sleep(random.uniform(0.0, 1.0))
+            if data_url:
+                image_data_urls.append(data_url)
+        except Exception as img_err:
+            logger.warning(
+                f"[LinkedIn Posts] Failed to fetch image data url for {url[:60]}: {img_err}"
+            )
+
     try:
-        extraction = await extract_jobs_from_post(post_text, image_urls)
+        extraction = await linkedin_llm_extractor.extract_jobs_from_post(
+            text=post_text,
+            image_data_urls=image_data_urls,
+        )
     except Exception as e:
         logger.warning(f"[LinkedIn Posts] LLM extraction failed: {e}")
-        await asyncio.sleep(random.uniform(POST_CLICK_DELAY_MIN, POST_CLICK_DELAY_MAX))
         return True, saved_count, skipped_count
 
     if not extraction.is_job_post:
@@ -280,6 +298,7 @@ async def _scrape_link(
         for element, element_id in new_cards:
             processed_count += 1
             await element.scroll_into_view_if_needed()
+
             share_id_ok, s, sk = await _process_post_card(
                 page, db, element, element_id, card_num=processed_count
             )

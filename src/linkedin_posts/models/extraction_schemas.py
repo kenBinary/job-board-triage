@@ -1,17 +1,7 @@
-from typing import Literal, Optional
+from typing import Optional
 from pydantic import BaseModel, Field
 
-JobCategory = Literal[
-    "Engineering & IT",
-    "Sales & Marketing",
-    "Operations & Administration",
-    "Finance & Legal",
-    "Product & Design",
-    "Customer Service",
-    "Healthcare & Life Sciences",
-    "Trades, Labor & Field Services",
-    "Others",
-]
+from src.common.constants.job_category import JobCategory
 
 
 class ExtractedJobListing(BaseModel):
