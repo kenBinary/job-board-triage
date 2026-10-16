@@ -98,10 +98,16 @@ class ScrollResult(TypedDict):
     at_bottom: bool
 
 
-async def _scroll_container_until_loaded(page: Page):
+async def _scroll_container_until_loaded(page: Page) -> bool:
     """Incrementally scroll the container to trigger lazy loading until bottom is reached or card count stops increasing."""
     max_scroll_attempts = 20
     job_cards_container = page.locator('[componentkey="SearchResultsMainContent"]')
+
+    if not await job_cards_container.count() == 1:
+        logger.debug(
+            f"[LinkedIn] Job cards container not found or multiple found. Skipping scroll."
+        )
+        return False
 
     for _ in range(max_scroll_attempts):
         result: ScrollResult = await job_cards_container.evaluate("""
@@ -125,6 +131,8 @@ async def _scroll_container_until_loaded(page: Page):
             break
 
         await asyncio.sleep(random.uniform(0.0, 0.3))
+
+    return True
 
 
 async def _extract_cards_from_page(page: Page) -> List[JobCardRawData]:
@@ -186,7 +194,11 @@ async def _scrape_page(
             f"[LinkedIn] Container {CONTAINER_SELECTOR} not immediately found, scrolling fallback..."
         )
 
-    await _scroll_container_until_loaded(page)
+    if not await _scroll_container_until_loaded(page):
+        logger.debug(
+            f"[LinkedIn] Failed to scroll container {CONTAINER_SELECTOR} on page {page_num}. Skipping extraction."
+        )
+        return 0, 0
 
     raw_cards = await _extract_cards_from_page(page)
     logger.debug(f"[LinkedIn] Discovered {len(raw_cards)} card(s) on page {page_num}")
@@ -268,15 +280,15 @@ async def _scrape_link(
     total_skipped = 0
 
     for page_num in range(1, link.max_page + 1):
-        next_button = page.locator(
-            '[data-testid="pagination-controls-next-button-visible"]'
-        )
-        if page_num > 1 and not await next_button.count() == 0:
-            logger.info(
-                f"[LinkedIn] Target {target_idx}/{total_targets} ('{link.params.keywords}'): "
-                f"Page {page_num} not found. Stopping further scraping for this target."
-            )
-            break
+        # next_button = page.locator(
+        #     '[data-testid="pagination-controls-next-button-visible"]'
+        # )
+        # if page_num > 1 and not await next_button.count() == 0:
+        #     logger.info(
+        #         f"[LinkedIn] Target {target_idx}/{total_targets} ('{link.params.keywords}'): "
+        #         f"Page {page_num} not found. Stopping further scraping for this target."
+        #     )
+        #     break
         page_url = link.get_next_page(page_num)
         saved, skipped = await _scrape_page(page, page_url, page_num)
         total_saved += saved

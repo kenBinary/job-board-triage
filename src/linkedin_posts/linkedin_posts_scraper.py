@@ -173,7 +173,7 @@ async def _process_post_card(
                 f"Failed to extract share_id from control menu response: {e}"
             )
 
-        await asyncio.sleep(random.uniform(0.5, 1.0))
+        await asyncio.sleep(random.uniform(1.5, 2.5))
         await page.keyboard.press("Escape")
 
     except Exception as e:
