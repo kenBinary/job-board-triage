@@ -25,11 +25,14 @@ from src.linkedin_posts.linkedin_posts_run_tracker import LinkedinPostsRunTracke
 from src.linkedin_posts.linkedin_posts_scraper import scrape_linkedin_posts
 from src.facebook_posts.facebook_posts_run_tracker import FacebookPostsRunTracker
 from src.facebook_posts.facebook_posts_scraper import scrape_facebook_posts
+from src.linkedin.linkedin_run_tracker import LinkedinRunTracker
+from src.linkedin.linkedin_scraper import scrape_linkedin
 
 app = typer.Typer()
 
 SLOW_BOARDS = {
     JobBoardEnum.Indeed,
+    JobBoardEnum.Linkedin,
     JobBoardEnum.LinkedinPosts,
     JobBoardEnum.FacebookPosts,
 }
@@ -41,6 +44,7 @@ SCRAPERS = {
     JobBoardEnum.Olj: scrape_olj,
     JobBoardEnum.Mynimo: scrape_mynimo,
     JobBoardEnum.Kalibrr: scrape_kalibrr,
+    JobBoardEnum.Linkedin: scrape_linkedin,
     JobBoardEnum.LinkedinPosts: scrape_linkedin_posts,
     JobBoardEnum.FacebookPosts: scrape_facebook_posts,
 }
@@ -82,6 +86,9 @@ def initialize_retry_state(board_name: str) -> tuple[bool, int]:
         case JobBoardEnum.Kalibrr.value:
             has_retry_links = KalibrrRunTracker.has_retry_links()
             count = KalibrrRunTracker.get_retry_count()
+        case JobBoardEnum.Linkedin.value:
+            has_retry_links = LinkedinRunTracker.has_retry_links()
+            count = LinkedinRunTracker.get_retry_count()
         case JobBoardEnum.LinkedinPosts.value:
             has_retry_links = LinkedinPostsRunTracker.has_retry_links()
             count = LinkedinPostsRunTracker.get_retry_count()
@@ -106,6 +113,8 @@ def clear_retry_state(board_name: str) -> None:
             MynimoRunTracker.clear_retry_state()
         case JobBoardEnum.Kalibrr.value:
             KalibrrRunTracker.clear_retry_state()
+        case JobBoardEnum.Linkedin.value:
+            LinkedinRunTracker.clear_retry_state()
         case JobBoardEnum.LinkedinPosts.value:
             LinkedinPostsRunTracker.clear_retry_state()
         case JobBoardEnum.FacebookPosts.value:
@@ -126,6 +135,8 @@ def load_retry_links(board_name: str) -> list[Any] | None:
             return MynimoRunTracker.load_retry_links()
         case JobBoardEnum.Kalibrr.value:
             return KalibrrRunTracker.load_retry_links()
+        case JobBoardEnum.Linkedin.value:
+            return LinkedinRunTracker.load_retry_links()
         case JobBoardEnum.LinkedinPosts.value:
             return LinkedinPostsRunTracker.load_retry_links()
         case JobBoardEnum.FacebookPosts.value:
@@ -144,6 +155,7 @@ def create_board_config(
             | JobBoardEnum.Indeed.value
             | JobBoardEnum.Mynimo.value
             | JobBoardEnum.Kalibrr.value
+            | JobBoardEnum.Linkedin.value
             | JobBoardEnum.LinkedinPosts.value
             | JobBoardEnum.FacebookPosts.value
         ):
@@ -188,7 +200,7 @@ def main(
         help="Enable detailed item-level verbose logs. Defaults to summary INFO logs.",
     ),
 ):
-    setup_logging(verbose=verbose)
+    setup_logging(verbose=verbose, write_to_file=True)
 
     if retry and fresh:
         raise typer.BadParameter(
