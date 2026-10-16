@@ -5,6 +5,7 @@ class JobBoardEnum(StrEnum):
     JobStreet = "jobstreet"
     Olj = "olj"
     Indeed = "indeed"
+    Linkedin = "linkedin"
     LinkedinPosts = "linkedin-posts"
     FacebookPosts = "facebook-posts"
     Mynimo = "mynimo"
