@@ -10,6 +10,7 @@ from src.view.indeed.indeed_state import indeed_state
 from src.view.jobstreet.jobstreet_state import jobstreet_state
 from src.view.kalibrr.kalibrr_state import kalibrr_state
 from src.view.linkedin.linkedin_state import linkedin_state
+from src.view.linkedin_posts.linkedin_posts_state import linkedin_posts_state
 from src.view.facebook.facebook_state import facebook_state
 from src.view.mynimo.mynimo_state import mynimo_state
 from src.view.olj.olj_state import olj_state
@@ -49,6 +50,8 @@ def header_view(on_job_board_change):
                         kalibrr_state.update_all_jobs_as_seen()
                     case "LinkedIn":
                         linkedin_state.update_all_jobs_as_seen()
+                    case "LinkedIn Posts":
+                        linkedin_posts_state.update_all_jobs_as_seen()
                     case "Facebook":
                         facebook_state.update_all_jobs_as_seen()
                 on_job_board_change()
@@ -84,6 +87,8 @@ def header_view(on_job_board_change):
                     kalibrr_state.get_jobs(filters=filters)
                 if e.value == "LinkedIn":
                     linkedin_state.get_jobs(is_new=global_state.show_new_only)
+                if e.value == "LinkedIn Posts":
+                    linkedin_posts_state.get_jobs(is_new=global_state.show_new_only)
                 if e.value == "Facebook":
                     facebook_state.get_jobs(is_new=global_state.show_new_only)
                 on_job_board_change()
@@ -96,6 +101,7 @@ def header_view(on_job_board_change):
                     "Mynimo",
                     "Kalibrr",
                     "LinkedIn",
+                    "LinkedIn Posts",
                     "Facebook",
                 ],
                 on_change=handle_job_board_change,

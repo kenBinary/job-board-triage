@@ -1,19 +1,21 @@
 from nicegui import ui
 
 from src.db.database import SessionLocal
-from src.linkedin_posts.db import update_linkedin_post_details
-from src.linkedin_posts.models.linkedin_post_job_details import LinkedInPostJobDetails
+from src.linkedin.db import update_linkedin_details
+from src.linkedin.models.linkedin_job_details import LinkedInJobDetails
 from src.utils.date_utils import calculate_time_difference, format_date
 
 
-def linkedin_job_card(job: LinkedInPostJobDetails, on_refresh):
+def linkedin_job_card(job: LinkedInJobDetails, on_refresh):
     def mark_seen():
         job.is_new = False
         with SessionLocal() as db:
-            update_linkedin_post_details(db, job)
+            update_linkedin_details(db, job)
         on_refresh()
 
-    job_url = job.url or "#"
+    job_url = job.url or (
+        f"https://www.linkedin.com/jobs/view/{job.job_id}/" if job.job_id else "#"
+    )
 
     with ui.card().classes(
         "w-full bg-white border border-slate-200/80 hover:border-slate-300 shadow-none rounded-md p-3 transition-colors"
@@ -91,6 +93,11 @@ def linkedin_job_card(job: LinkedInPostJobDetails, on_refresh):
                             "bg-blue-50 text-blue-700 border border-blue-200/60 px-1.5 py-0.5 rounded text-[11px] font-medium"
                         )
 
+                    if job.is_early_applicant:
+                        ui.label("Early Applicant").classes(
+                            "bg-amber-50 text-amber-800 border border-amber-200/70 px-1.5 py-0.5 rounded text-[11px] font-medium"
+                        )
+
                 if job.short_description:
                     with ui.row().classes("w-full"):
                         ui.label(job.short_description).classes(
@@ -105,6 +112,6 @@ def linkedin_job_card(job: LinkedInPostJobDetails, on_refresh):
                         "text-slate-700 bg-white border-slate-300 hover:bg-slate-50 font-medium px-2.5 rounded"
                     )
 
-                ui.link("View Post ↗", job_url, new_tab=True).classes(
+                ui.link("View Job ↗", job_url, new_tab=True).classes(
                     "bg-[#0a66c2] hover:bg-[#004182] text-white text-sm font-medium px-3 py-1 rounded no-underline inline-block text-center"
                 )
