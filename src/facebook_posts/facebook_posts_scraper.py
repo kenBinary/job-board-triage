@@ -1,15 +1,14 @@
 import asyncio
-import base64
 import random
-from datetime import datetime, timezone
 from urllib.parse import urlparse, parse_qs
 import re
-from typing import List, Optional
+from typing import Optional
 
 from playwright.async_api import ElementHandle, Page
 
 from src.common.infra.browser_context import CamoufoxSingleton
 from src.common.logger import format_job_log, get_logger
+from src.common.playwright.utils import screenshot_and_return_base64
 from src.db.database import SessionLocal
 from src.facebook_posts.facebook_posts_run_tracker import FacebookPostsRunTracker
 from src.facebook_posts.models.facebook_post_link import (
@@ -17,7 +16,7 @@ from src.facebook_posts.models.facebook_post_link import (
     FacebookPostLink,
     FacebookPostParams,
 )
-from src.common.media_utils import fetch_image_as_data_url
+from src.common.media_utils import base64_to_data_url, fetch_image_as_data_url
 from .db import (
     create_facebook_post_details_bulk,
     get_facebook_post_by_job_id,
@@ -34,8 +33,6 @@ facebook_llm_extractor = FacebookLLMExtractor(
     prompt_template=DEFAULT_FACEBOOK_SYSTEM_PROMPT
 )
 
-POST_CLICK_DELAY_MIN: float = 0.5
-POST_CLICK_DELAY_MAX: float = 1.5
 MAX_EXISTING_POSTS_PER_SCROLL: int = 3
 MAX_FAILED_POSTS_PER_LINK: int = 10
 MAX_SKIPPED_POSTS_PER_LINK: int = 10
@@ -168,8 +165,8 @@ async def _check_authwall(page: Page) -> None:
         input("  [Waiting for login] Press Enter once you are logged in: ")
 
 
-async def _click_see_more_button(buttons: List[ElementHandle]) -> bool:
-    for btn in buttons:
+async def _click_see_more_button(card: ElementHandle) -> bool:
+    for btn in await card.query_selector_all('[role="button"]'):
         btn_text = await btn.inner_text()
         if btn_text.strip().lower() == "see more":
             try:
@@ -205,9 +202,68 @@ def _extract_post_id_from_href(href: str) -> Optional[str]:
     return None
 
 
+async def _trigger_link_reveal(card: ElementHandle, page: Page) -> bool:
+    anchor_tags = (await card.query_selector_all("a"))[2:6]
+    # * Hovering over the anchor tags because the link with /posts/<post_id> is sometimes hidden until you hover over the card. This is a workaround for that.
+    try:
+        for a in reversed(anchor_tags):
+            box = await a.bounding_box()
+            if box:
+                await page.mouse.move(
+                    box["x"] + box["width"] / 2,
+                    box["y"] + box["height"] / 2,
+                    steps=1,
+                )
+            await asyncio.sleep(random.uniform(0.1, 0.3))
+            await page.mouse.move(-1000, -1000)
+        return True
+    except Exception as e:
+        logger.warning(f"  [card] Failed to hover over anchor tags: {e}")
+        return False
+
+
+async def _get_post_url(card: ElementHandle) -> Optional[str]:
+    for a in await card.query_selector_all("a"):
+        # TODO: this includes tracking links, which may not be the actual post URL. Consider filtering out tracking links if necessary.
+        href = await a.get_attribute("href")
+        if not href:
+            continue
+
+        if "/posts/" in href or "/permalink" in href:
+            return href
+    return None
+
+
+async def _get_post_image_data_urls(card: ElementHandle):
+    image_urls = []
+    for img in await card.query_selector_all("img"):
+        img_src = await img.get_attribute("src")
+        if img_src and img_src.startswith("https://scontent"):
+            image_urls.append(img_src)
+    logger.debug(f"  [card] Found {len(image_urls)} image(s) in card.")
+    logger.debug(f"  [card] Extracted image URLs: {image_urls}")
+
+    image_data_urls: list[str] = []
+    for url in image_urls:
+        try:
+            data_url = fetch_image_as_data_url(url)
+            await asyncio.sleep(random.uniform(0.1, 0.4))
+            if data_url:
+                image_data_urls.append(data_url)
+        except Exception as img_err:
+            logger.warning(
+                f"  [card] Failed to fetch image data url for {url[:60]}: {img_err}"
+            )
+
+    card_screenshot_base_64 = await screenshot_and_return_base64(card)
+    image_data_urls.append(
+        base64_to_data_url(card_screenshot_base_64, media_type="image/png")
+    )
+    return image_data_urls
+
+
 async def _scrape_link(
     page: Page,
-    db,
     link: FacebookPostLink,
     target_idx: int,
     total_targets: int,
@@ -228,7 +284,18 @@ async def _scrape_link(
     current_card_index = 0
 
     for scroll_idx in range(link.max_scrolls):
-        existing_posts_in_scroll = 0
+        if skipped_count > MAX_SKIPPED_POSTS_PER_LINK:
+            logger.info(
+                f"[Facebook Posts] More than {MAX_SKIPPED_POSTS_PER_LINK} posts skipped in link {url}; stopping further processing of this link."
+            )
+            break
+
+        if failed_posts_count > MAX_FAILED_POSTS_PER_LINK:
+            raise RuntimeError(
+                f"More than {MAX_FAILED_POSTS_PER_LINK} posts failed while "
+                f"scraping {url}"
+            )
+
         logger.debug(
             f"[Facebook Posts] Scroll {scroll_idx + 1}/{link.max_scrolls} — extracting cards..."
         )
@@ -248,12 +315,6 @@ async def _scrape_link(
                 f"No post cards found in scroll {scroll_idx + 1}/{link.max_scrolls} for link: {url}"
             )
 
-        if skipped_count > MAX_SKIPPED_POSTS_PER_LINK:
-            logger.info(
-                f"[Facebook Posts] More than {MAX_SKIPPED_POSTS_PER_LINK} posts skipped in link {url}; stopping further processing of this link."
-            )
-            break
-
         for card in post_cards:
             await card.scroll_into_view_if_needed()
             logger.debug(
@@ -264,57 +325,32 @@ async def _scrape_link(
             else:
                 await card.evaluate("el => el.style.border = '2px solid green'")
 
-            new_jobs: list[FacebookPostJobDetails] = []
-
-            anchor_tags = (await card.query_selector_all("a"))[2:6]
-            # * Hovering over the anchor tags because the link with /posts/<post_id> is sometimes hidden until you hover over the card. This is a workaround for that.
-            try:
-                for a in reversed(anchor_tags):
-                    box = await a.bounding_box()
-                    if box:
-                        await page.mouse.move(
-                            box["x"] + box["width"] / 2,
-                            box["y"] + box["height"] / 2,
-                            steps=1,
-                        )
-                    await asyncio.sleep(random.uniform(0.1, 0.3))
-                    await page.mouse.move(-1000, -1000)
-            except Exception as e:
-                logger.warning(f"  [card] Failed to hover over anchor tags: {e}")
-                # TODO: Consider whether to continue or raise an exception here. For now, we log the warning and continue.
+            _trigger_link_reveal_success = await _trigger_link_reveal(card, page)
+            if not _trigger_link_reveal_success:
+                failed_posts_count += 1
+                current_card_index += 1
+                logger.warning(
+                    f"  [card] Failed to trigger link reveal for card {current_card_index + 1}/{post_cards_length} in scroll {scroll_idx + 1}/{link.max_scrolls}."
+                )
                 continue
 
-            post_url = None
-            anchor_tags_v2 = await card.query_selector_all("a")
-            for a in anchor_tags_v2:
-                try:
-                    # TODO: this includes tracking links, which may not be the actual post URL. Consider filtering out tracking links if necessary.
-                    href = await a.get_attribute("href")
-                    if not href:
-                        continue
-
-                    if "/posts/" in href or "/permalink" in href:
-                        post_url = href
-                        break
-                except Exception as e:
-                    logger.warning(f"  [card] Failed to get href from anchor: {e}")
-
+            post_url = await _get_post_url(card)
             if not post_url:
-                logger.debug(
+                logger.warning(
                     "[Facebook Posts] [skip] No post permalink found — skipping card."
                 )
                 current_card_index += 1
-                # TODO: Consider whether to raise an exception here instead of skipping, as this might indicate a change in Facebook's DOM structure.
+                failed_posts_count += 1
                 continue
 
-            post_id = _extract_post_id_from_href(post_url) if post_url else None
+            post_id = _extract_post_id_from_href(post_url)
             logger.debug(f"  [card] Extracted post_id: {post_id} from link: {post_url}")
             if not post_id:
                 logger.debug(
                     "[Facebook Posts] [skip] No post permalink found — skipping card."
                 )
                 current_card_index += 1
-                # TODO: Consider whether to raise an exception here instead of skipping, as this might indicate a change in Facebook's DOM structure.
+                failed_posts_count += 1
                 continue
 
             if post_id in seen_post_ids:
@@ -324,62 +360,22 @@ async def _scrape_link(
                 current_card_index += 1
                 continue
 
-            if get_facebook_post_by_job_id(db, post_id):
-                skipped_count += 1
-                existing_posts_in_scroll += 1
-                logger.debug(
-                    f"[Facebook Posts] [dup] post_id={post_id} already in DB — skipping."
-                )
-                if existing_posts_in_scroll > MAX_EXISTING_POSTS_PER_SCROLL:
+            with SessionLocal() as db:
+                if get_facebook_post_by_job_id(db, post_id):
+                    skipped_count += 1
                     logger.debug(
-                        f"[Facebook Posts] More than "
-                        f"{MAX_EXISTING_POSTS_PER_SCROLL} existing posts found in "
-                        f"scroll {scroll_idx + 1}; skipping the rest of this scroll."
+                        f"[Facebook Posts] [dup] post_id={post_id} already in DB — skipping."
                     )
-                    break
-                current_card_index += 1
-                continue
+                    current_card_index += 1
+                    continue
 
-            image_tags = await card.query_selector_all("img")
-            image_urls = []
-            for img in image_tags:
-                img_src = await img.get_attribute("src")
-                if img_src and img_src.startswith("https://scontent"):
-                    image_urls.append(img_src)
-            logger.debug(f"  [card] Found {len(image_urls)} image(s) in card.")
-            logger.debug(f"  [card] Extracted image URLs: {image_urls}")
-
-            buttons = await card.query_selector_all('[role="button"]')
-            see_more_clicked = await _click_see_more_button(buttons)
-            card_screenshot: Optional[str] = None
+            see_more_clicked = await _click_see_more_button(card)
             if see_more_clicked:
-                await asyncio.sleep(random.uniform(0.2, 0.5))
-                screenshot_bytes = await card.screenshot()
-                card_screenshot = base64.b64encode(screenshot_bytes).decode("ascii")
+                await asyncio.sleep(random.uniform(0.1, 0.3))
 
-            image_data_urls: list[str] = []
-            for url in image_urls:
-                try:
-                    data_url = fetch_image_as_data_url(url)
-                    await asyncio.sleep(random.uniform(0.0, 1.0))
-                    if data_url:
-                        image_data_urls.append(data_url)
-                except Exception as img_err:
-                    logger.warning(
-                        f"  [card] Failed to fetch image data url for {url[:60]}: {img_err}"
-                    )
-
-            if card_screenshot:
-                screenshot_data_url = (
-                    card_screenshot
-                    if card_screenshot.startswith("data:")
-                    else f"data:image/png;base64,{card_screenshot}"
-                )
-                image_data_urls.append(screenshot_data_url)
-
+            image_data_urls = await _get_post_image_data_urls(card)
             logger.debug(
                 f"[Facebook Posts] Processing card post_id={post_id} "
-                f"images={len(image_urls)} screenshot={see_more_clicked} "
                 f"total_data_urls={len(image_data_urls)}"
             )
 
@@ -399,52 +395,40 @@ async def _scrape_link(
                 )
             except Exception as e:
                 failed_posts_count += 1
-                logger.warning(
+                current_card_index += 1
+                logger.error(
                     f"[Facebook Posts] LLM extraction failed for post {post_id}: {e}"
                 )
-                if failed_posts_count > MAX_FAILED_POSTS_PER_LINK:
-                    raise RuntimeError(
-                        f"More than {MAX_FAILED_POSTS_PER_LINK} posts failed while "
-                        f"scraping {url}"
-                    ) from e
-                await asyncio.sleep(
-                    random.uniform(POST_CLICK_DELAY_MIN, POST_CLICK_DELAY_MAX)
-                )
-                raise Exception(
-                    f"LLM extraction failed for post {post_id} in card "
-                    f"{current_card_index + 1}/{post_cards_length} in scroll "
-                    f"{scroll_idx + 1}/{link.max_scrolls}: {e}"
-                ) from e
+
+                await asyncio.sleep(random.uniform(0.5, 1.0))
+                continue
 
             if not extraction.is_job_post:
                 logger.debug(
                     f"[Facebook Posts] [skip] post_id={post_id} — LLM says not a job post."
                 )
-                await asyncio.sleep(
-                    random.uniform(POST_CLICK_DELAY_MIN, POST_CLICK_DELAY_MAX)
-                )
+                await asyncio.sleep(random.uniform(0.5, 1.0))
                 current_card_index += 1
                 continue
 
+            new_jobs: list[FacebookPostJobDetails] = []
             for job_idx, job in enumerate(extraction.jobs, 1):
                 job_id = (
                     post_id if len(extraction.jobs) == 1 else f"{post_id}_{job_idx}"
                 )
-
-                if get_facebook_post_by_job_id(db, job_id):
-                    skipped_count += 1
-                    logger.debug(
-                        f"[Facebook Posts] [dup] job_id={job_id} already in DB — skipping."
-                    )
-                    continue
+                with SessionLocal() as db:
+                    if get_facebook_post_by_job_id(db, job_id):
+                        skipped_count += 1
+                        logger.debug(
+                            f"[Facebook Posts] [dup] job_id={job_id} already in DB — skipping."
+                        )
+                        continue
 
                 record = FacebookPostJobDetails.from_extracted(
                     job=job,
                     job_id=job_id,
                     post_url=post_url or "",
                 )
-                if not record.posted_at_utc:
-                    record.posted_at_utc = datetime.now(timezone.utc).isoformat()
                 new_jobs.append(record)
                 saved_count += 1
 
@@ -468,7 +452,8 @@ async def _scrape_link(
                 logger.debug(formatted_job)
 
             if new_jobs and len(new_jobs) > 0:
-                create_facebook_post_details_bulk(db, new_jobs)
+                with SessionLocal() as db:
+                    create_facebook_post_details_bulk(db, new_jobs)
 
             seen_post_ids.add(post_id)
             total_cards_processed += 1
@@ -496,30 +481,29 @@ async def scrape_facebook_posts(
     page = await CamoufoxSingleton.create_new_page()
 
     try:
-        with SessionLocal() as db:
-            total_items = len(targets)
-            logger.info(f"[Facebook Posts] Scraping {total_items} target(s)...")
-            for index, link in enumerate(targets):
-                tracker.set_current_index(index)
-                logger.info(
-                    f"[Facebook Posts] Target {index + 1}/{total_items}: "
-                    f"type='{link.params.link_type}' query='{link.params.query}'"
+        total_items = len(targets)
+        logger.info(f"[Facebook Posts] Scraping {total_items} target(s)...")
+        for index, link in enumerate(targets):
+            tracker.set_current_index(index)
+            logger.info(
+                f"[Facebook Posts] Target {index + 1}/{total_items}: "
+                f"type='{link.params.link_type}' query='{link.params.query}'"
+            )
+            try:
+                await _scrape_link(
+                    page, link, target_idx=index + 1, total_targets=total_items
                 )
-                try:
-                    await _scrape_link(
-                        page, db, link, target_idx=index + 1, total_targets=total_items
-                    )
-                    tracker.record_success()
-                except Exception as e:
-                    logger.error(
-                        f"[Facebook Posts] Failed target {index + 1}/{total_items} "
-                        f"({link.get_url()}): {e}"
-                    )
-                    if tracker.record_link_error(link=link, error=e):
-                        break
+                tracker.record_success()
+            except Exception as e:
+                logger.error(
+                    f"[Facebook Posts] Failed target {index + 1}/{total_items} "
+                    f"({link.get_url()}): {e}"
+                )
+                if tracker.record_link_error(link=link, error=e):
+                    break
 
-                if index < total_items - 1:
-                    await asyncio.sleep(random.uniform(3.5, 8.0))
+            if index < total_items - 1:
+                await asyncio.sleep(random.uniform(3.5, 8.0))
 
         tracker.finalize()
 
