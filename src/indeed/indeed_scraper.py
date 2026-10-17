@@ -3,7 +3,7 @@ import random
 from typing import List
 from playwright.async_api import BrowserContext
 
-from src.common.infra.browser_context import CamoufoxSingleton
+from src.common.infra.dependencies import infra_container
 from src.common.logger import format_job_log, get_logger
 from src.db.database import SessionLocal
 from src.indeed.db import create_indeed_details_bulk, get_indeed_details_by_job_id
@@ -127,9 +127,8 @@ async def scrape_indeed(
     targets = links if links is not None else LINKS
     tracker = IndeedRunTracker(links=targets, is_retry_run=is_retry)
 
-    context = await CamoufoxSingleton.get_context()
-    assert isinstance(context, BrowserContext)
-    page = await CamoufoxSingleton.get_primary_page()
+    page = await infra_container.camoufox_provider.get_primary_page()
+
     try:
         with SessionLocal() as db:
             total_items = len(targets)

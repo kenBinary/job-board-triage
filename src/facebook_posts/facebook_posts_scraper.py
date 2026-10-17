@@ -6,7 +6,7 @@ from typing import Optional
 
 from playwright.async_api import ElementHandle, Page
 
-from src.common.infra.browser_context import CamoufoxSingleton
+from src.common.infra.dependencies import infra_container
 from src.common.logger import format_job_log, get_logger
 from src.common.playwright.utils import screenshot_and_return_base64
 from src.db.database import SessionLocal
@@ -478,7 +478,7 @@ async def scrape_facebook_posts(
     targets = links if links is not None else DEFAULT_LINKS
     tracker = FacebookPostsRunTracker(links=targets, is_retry_run=is_retry)
 
-    page = await CamoufoxSingleton.create_new_page()
+    page = await infra_container.camoufox_provider.create_new_page()
 
     try:
         total_items = len(targets)

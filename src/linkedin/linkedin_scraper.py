@@ -3,7 +3,7 @@ import random
 from typing import List, Optional, Tuple, TypedDict
 from playwright.async_api import Page
 
-from src.common.infra.browser_context import CamoufoxSingleton
+from src.common.infra.dependencies import infra_container
 from src.common.logger import format_job_log, get_logger
 from src.db.database import SessionLocal
 from src.linkedin.db import (
@@ -310,7 +310,7 @@ async def scrape_linkedin(
     targets = links if links is not None else DEFAULT_LINKS
     tracker = LinkedinRunTracker(links=targets, is_retry_run=is_retry)
 
-    page = await CamoufoxSingleton.create_new_page()
+    page = await infra_container.camoufox_provider.create_new_page()
 
     try:
         total_items = len(targets)

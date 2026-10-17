@@ -1,167 +1,43 @@
 import asyncio
-from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Optional
 import typer
 
+from src.cli.board_registry import get_boards_by_speed
+from src.cli.orchestrator import RetryMode, ScraperOrchestrator
 from src.common.enums.job_board import JobBoardEnum
-from src.common.logger import get_logger, setup_logging
-from src.db.database import BaseEntity, engine
+from src.common.infra.camofoux_provider import PROFILE_DIR, CamofouxProvider
+from src.common.infra.dependencies import infra_container
+from src.common.logger import setup_logging
 
-logger = get_logger("scraper_app")
-
-
-from src.indeed.indeed_run_tracker import IndeedRunTracker
-from src.indeed.indeed_scraper import scrape_indeed
-from src.common.infra.browser_context import CamoufoxSingleton
-from src.jobstreet.jobstreet_run_tracker import JobstreetRunTracker
-from src.jobstreet.jobstreet_scraper import scrape_jobstreet
-from src.kalibrr.kalibrr_run_tracker import KalibrrRunTracker
-from src.kalibrr.kalibrr_scraper import scrape_kalibrr
-from src.mynimo.mynimo_run_tracker import MynimoRunTracker
-from src.mynimo.mynimo_scraper import scrape_mynimo
-from src.olj.olj_run_tracker import OljRunTracker
-from src.olj.olj_scraper import scrape_olj
-from src.linkedin_posts.linkedin_posts_run_tracker import LinkedinPostsRunTracker
-from src.linkedin_posts.linkedin_posts_scraper import scrape_linkedin_posts
-from src.facebook_posts.facebook_posts_run_tracker import FacebookPostsRunTracker
-from src.facebook_posts.facebook_posts_scraper import scrape_facebook_posts
-from src.linkedin.linkedin_run_tracker import LinkedinRunTracker
-from src.linkedin.linkedin_scraper import scrape_linkedin
-
-app = typer.Typer()
-
-SLOW_BOARDS = {
-    JobBoardEnum.Indeed,
-    JobBoardEnum.Linkedin,
-    JobBoardEnum.LinkedinPosts,
-    JobBoardEnum.FacebookPosts,
-}
-FAST_BOARDS = set(JobBoardEnum) - SLOW_BOARDS
-
-SCRAPERS = {
-    JobBoardEnum.JobStreet: scrape_jobstreet,
-    JobBoardEnum.Indeed: scrape_indeed,
-    JobBoardEnum.Olj: scrape_olj,
-    JobBoardEnum.Mynimo: scrape_mynimo,
-    JobBoardEnum.Kalibrr: scrape_kalibrr,
-    JobBoardEnum.Linkedin: scrape_linkedin,
-    JobBoardEnum.LinkedinPosts: scrape_linkedin_posts,
-    JobBoardEnum.FacebookPosts: scrape_facebook_posts,
-}
+app = typer.Typer(add_completion=False)
 
 
-@dataclass
-class BoardConfig:
-    links: list[Any] | None
-    is_retry: bool
+def parse_target_boards(
+    board: Optional[str], fast: bool, slow: bool
+) -> list[JobBoardEnum]:
+    if fast and slow:
+        raise typer.BadParameter("Cannot specify both --fast and --slow.")
+    if (fast or slow) and board:
+        raise typer.BadParameter(
+            "Cannot specify --board together with --fast or --slow."
+        )
 
+    if fast:
+        return get_boards_by_speed(is_slow=False)
+    if slow:
+        return get_boards_by_speed(is_slow=True)
+    if board:
+        names = [b.strip().lower() for b in board.split(",") if b.strip()]
+        valid_map = {b.value.lower(): b for b in JobBoardEnum}
+        invalid = [name for name in names if name not in valid_map]
 
-async def run_scrapers(board_configs: Dict[JobBoardEnum, BoardConfig]) -> None:
-    BaseEntity.metadata.create_all(bind=engine)
+        if invalid:
+            raise typer.BadParameter(
+                f"Unknown board(s): {', '.join(invalid)}. Valid options: {', '.join(valid_map.keys())}"
+            )
+        return [valid_map[name] for name in names]
 
-    try:
-        async with asyncio.TaskGroup() as tg:
-            for name, config in board_configs.items():
-                tg.create_task(
-                    SCRAPERS[name](links=config.links, is_retry=config.is_retry)
-                )
-    finally:
-        await CamoufoxSingleton.close()
-
-
-def initialize_retry_state(board_name: str) -> tuple[bool, int]:
-    match board_name:
-        case JobBoardEnum.JobStreet.value:
-            has_retry_links = JobstreetRunTracker.has_retry_links()
-            count = JobstreetRunTracker.get_retry_count()
-        case JobBoardEnum.Olj.value:
-            has_retry_links = OljRunTracker.has_retry_links()
-            count = OljRunTracker.get_retry_count()
-        case JobBoardEnum.Indeed.value:
-            has_retry_links = IndeedRunTracker.has_retry_links()
-            count = IndeedRunTracker.get_retry_count()
-        case JobBoardEnum.Mynimo.value:
-            has_retry_links = MynimoRunTracker.has_retry_links()
-            count = MynimoRunTracker.get_retry_count()
-        case JobBoardEnum.Kalibrr.value:
-            has_retry_links = KalibrrRunTracker.has_retry_links()
-            count = KalibrrRunTracker.get_retry_count()
-        case JobBoardEnum.Linkedin.value:
-            has_retry_links = LinkedinRunTracker.has_retry_links()
-            count = LinkedinRunTracker.get_retry_count()
-        case JobBoardEnum.LinkedinPosts.value:
-            has_retry_links = LinkedinPostsRunTracker.has_retry_links()
-            count = LinkedinPostsRunTracker.get_retry_count()
-        case JobBoardEnum.FacebookPosts.value:
-            has_retry_links = FacebookPostsRunTracker.has_retry_links()
-            count = FacebookPostsRunTracker.get_retry_count()
-        case _:
-            has_retry_links = False
-            count = 0
-    return has_retry_links, count
-
-
-def clear_retry_state(board_name: str) -> None:
-    match board_name:
-        case JobBoardEnum.JobStreet.value:
-            JobstreetRunTracker.clear_retry_state()
-        case JobBoardEnum.Olj.value:
-            OljRunTracker.clear_retry_state()
-        case JobBoardEnum.Indeed.value:
-            IndeedRunTracker.clear_retry_state()
-        case JobBoardEnum.Mynimo.value:
-            MynimoRunTracker.clear_retry_state()
-        case JobBoardEnum.Kalibrr.value:
-            KalibrrRunTracker.clear_retry_state()
-        case JobBoardEnum.Linkedin.value:
-            LinkedinRunTracker.clear_retry_state()
-        case JobBoardEnum.LinkedinPosts.value:
-            LinkedinPostsRunTracker.clear_retry_state()
-        case JobBoardEnum.FacebookPosts.value:
-            FacebookPostsRunTracker.clear_retry_state()
-        case _:
-            pass
-
-
-def load_retry_links(board_name: str) -> list[Any] | None:
-    match board_name:
-        case JobBoardEnum.JobStreet.value:
-            return JobstreetRunTracker.load_retry_links()
-        case JobBoardEnum.Olj.value:
-            return OljRunTracker.load_retry_links()
-        case JobBoardEnum.Indeed.value:
-            return IndeedRunTracker.load_retry_links()
-        case JobBoardEnum.Mynimo.value:
-            return MynimoRunTracker.load_retry_links()
-        case JobBoardEnum.Kalibrr.value:
-            return KalibrrRunTracker.load_retry_links()
-        case JobBoardEnum.Linkedin.value:
-            return LinkedinRunTracker.load_retry_links()
-        case JobBoardEnum.LinkedinPosts.value:
-            return LinkedinPostsRunTracker.load_retry_links()
-        case JobBoardEnum.FacebookPosts.value:
-            return FacebookPostsRunTracker.load_retry_links()
-        case _:
-            return None
-
-
-def create_board_config(
-    board_name: str, links: list[Any] | None, is_retry: bool
-) -> BoardConfig:
-    match board_name:
-        case (
-            JobBoardEnum.JobStreet.value
-            | JobBoardEnum.Olj.value
-            | JobBoardEnum.Indeed.value
-            | JobBoardEnum.Mynimo.value
-            | JobBoardEnum.Kalibrr.value
-            | JobBoardEnum.Linkedin.value
-            | JobBoardEnum.LinkedinPosts.value
-            | JobBoardEnum.FacebookPosts.value
-        ):
-            return BoardConfig(links=links, is_retry=is_retry)
-        case _:
-            raise ValueError(f"Unknown board name: {board_name}")
+    return list(JobBoardEnum)
 
 
 @app.command()
@@ -170,121 +46,53 @@ def main(
         None,
         "--board",
         "-b",
-        help="Comma-separated list of job boards to scrape (e.g. --board=indeed,olj). Default runs all.",
+        help="Comma-separated list of job boards (e.g. indeed,olj).",
     ),
-    fast: bool = typer.Option(
-        False,
-        "--fast",
-        help="Run only fast scrapers (everything except indeed and linkedin-posts).",
-    ),
-    slow: bool = typer.Option(
-        False,
-        "--slow",
-        help="Run only slow scrapers (indeed and linkedin-posts).",
-    ),
+    fast: bool = typer.Option(False, "--fast", help="Run only fast scrapers."),
+    slow: bool = typer.Option(False, "--slow", help="Run only slow scrapers."),
     retry: bool = typer.Option(
-        False,
-        "--retry",
-        "-r",
-        help="Force resume scraping from saved retry state without prompting.",
+        False, "--retry", "-r", help="Force resume without prompting."
     ),
     fresh: bool = typer.Option(
-        False,
-        "--fresh",
-        help="Force fresh start, ignoring and clearing any existing retry state without prompting.",
+        False, "--fresh", help="Force fresh start without prompting."
     ),
-    verbose: bool = typer.Option(
-        False,
-        "--verbose",
-        "-v",
-        help="Enable detailed item-level verbose logs. Defaults to summary INFO logs.",
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logs."),
+    write_to_file: bool = typer.Option(
+        False, "--write-to-file", "-wtf", help="Write logs to file."
+    ),
+    headless: bool = typer.Option(
+        False, "--headless", help="Run browser in headless mode."
     ),
 ):
-    setup_logging(verbose=verbose, write_to_file=True)
+    """Run job board scrapers with custom board and state filters."""
+    setup_logging(verbose=verbose, write_to_file=write_to_file)
+
+    camoufox_provider = CamofouxProvider(
+        headless=headless,
+        persistent_context=True,
+        user_data_dir=PROFILE_DIR,
+        humanize=True,
+        firefox_user_prefs={
+            "widget.windows.window_occlusion_tracking.enabled": False,
+            "dom.timeout.enable_budget_timer_throttling": False,
+        },
+    )
+    infra_container.camoufox_provider = camoufox_provider
 
     if retry and fresh:
         raise typer.BadParameter(
             "Cannot specify both --retry and --fresh at the same time."
         )
 
-    if fast and slow:
-        raise typer.BadParameter(
-            "Cannot specify both --fast and --slow at the same time."
-        )
+    mode = (
+        RetryMode.FORCE_RETRY
+        if retry
+        else (RetryMode.FORCE_FRESH if fresh else RetryMode.PROMPT)
+    )
+    targets = parse_target_boards(board, fast, slow)
 
-    if (fast or slow) and board:
-        raise typer.BadParameter(
-            "Cannot specify --board together with --fast or --slow."
-        )
-
-    if fast:
-        requested_boards = [b for b in JobBoardEnum if b in FAST_BOARDS]
-    elif slow:
-        requested_boards = [b for b in JobBoardEnum if b in SLOW_BOARDS]
-    elif board:
-        requested_boards = [b.strip().lower() for b in board.split(",") if b.strip()]
-        if not requested_boards:
-            raise typer.BadParameter("No valid board names provided.")
-
-        valid_values = set(JobBoardEnum)
-        invalid = set(requested_boards) - valid_values
-
-        if invalid:
-            valid_list = ", ".join(valid_values)
-            raise typer.BadParameter(
-                f"Unknown board(s): {', '.join(invalid)}. Valid options: {valid_list}"
-            )
-
-        requested_boards = [JobBoardEnum(b) for b in requested_boards]
-    else:
-        requested_boards = list(JobBoardEnum)
-
-    board_configs: Dict[JobBoardEnum, BoardConfig] = {}
-    for board in requested_boards:
-        has_retry_links, count = initialize_retry_state(board)
-
-        if fresh:
-            if has_retry_links:
-                clear_retry_state(board)
-                logger.info(f"[{board}] Starting fresh (cleared previous retry state).")
-            config = create_board_config(board, links=None, is_retry=False)
-            board_configs[board] = config
-        elif retry:
-            if has_retry_links:
-                loaded_retry_links = load_retry_links(board)
-                config = create_board_config(
-                    board, links=loaded_retry_links, is_retry=True
-                )
-                board_configs[board] = config
-                logger.info(
-                    f"[{board}] Resuming from saved retry state ({count} link(s))."
-                )
-            else:
-                config = create_board_config(board, links=None, is_retry=False)
-                logger.info(f"[{board}] No retry state found; running default links.")
-                board_configs[board] = config
-        else:
-            if has_retry_links:
-                should_resume = typer.confirm(
-                    f"Found saved retry state for '{board}' ({count} link(s) remaining). Resume where it left off?",
-                    default=True,
-                )
-                if should_resume:
-                    loaded = load_retry_links(board)
-                    config = create_board_config(board, links=loaded, is_retry=True)
-                    board_configs[board] = config
-                    logger.info(
-                        f"[{board}] Resuming from saved retry state ({count} link(s))."
-                    )
-                else:
-                    config = create_board_config(board, links=None, is_retry=False)
-                    board_configs[board] = config
-                    logger.info(f"[{board}] Starting fresh with default links.")
-            else:
-                config = create_board_config(board, links=None, is_retry=False)
-                board_configs[board] = config
-
-    asyncio.run(run_scrapers(board_configs))
+    orchestrator = ScraperOrchestrator()
+    asyncio.run(orchestrator.run(boards=targets, mode=mode))
 
 
 if __name__ == "__main__":
