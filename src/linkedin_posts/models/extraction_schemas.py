@@ -54,6 +54,14 @@ class ExtractedJobListing(BaseModel):
         default=None,
         description="Application or contact URL/link mentioned in the post, if any.",
     )
+    posted_date_utc: Optional[str] = Field(
+        default=None,
+        description=(
+            "The date the job was posted, extracted from the post or screenshot. "
+            "Should be in ISO-8601 UTC format (e.g., '2023-08-15T14:30:00Z'). "
+            "Null if the date is unreadable or not present."
+        ),
+    )
     category: JobCategory = Field(
         description=(
             "Job category. Choose one of: 'Engineering & IT' (Software, Hardware, "

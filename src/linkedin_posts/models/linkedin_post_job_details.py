@@ -40,6 +40,7 @@ class LinkedInPostJobDetails(JobDetails):
             short_description=job.short_description,
             description=job.description,
             category=job.category,
+            posted_at_utc=job.posted_date_utc,
             salary_min=job.salary_min,
             salary_max=job.salary_max,
             salary_currency=job.salary_currency,

@@ -30,6 +30,9 @@ Rules:
 - For short_description, write a concise 1-2 sentence summary of the role.
 - For description, include all responsibilities, qualifications, and requirements.
 - Extract any contact email or application link if explicitly mentioned.
+- Extract the post date shown on the Facebook card screenshot as posted_date_utc.
+  Convert absolute and relative dates (for example, "2h" or "Yesterday") to an
+  ISO-8601 UTC string. Return null only when the date is unreadable.
 - Assign exactly one category to each job:
   - "Engineering & IT": Software, Hardware, Data, Systems
   - "Sales & Marketing": Growth, Account Execs, Advertising
