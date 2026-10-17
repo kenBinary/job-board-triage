@@ -22,3 +22,8 @@ def fetch_image_as_data_url(url: str) -> str:
 
     except Exception as e:
         raise RuntimeError(f"Failed to fetch {url[:80]}...: {e}") from e
+
+
+def base64_to_data_url(base64_str: str, media_type: str = "image/jpeg") -> str:
+    """Convert a base64 string to a data URL."""
+    return f"data:{media_type};base64,{base64_str}"
