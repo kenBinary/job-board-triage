@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime
 from bs4 import BeautifulSoup, Tag
 
@@ -84,10 +85,17 @@ def parse_job_card(card: Tag) -> OljJobSchema:
     )
 
 
-def parse_job_listings(html_content: str) -> list[OljJobSchema]:
-    soup = BeautifulSoup(html_content, "html.parser")
+def parse_job_listings(soup: BeautifulSoup) -> list[OljJobSchema]:
     job_cards = soup.select("a:has(div.jobpost-cat-box)")
     return [parse_job_card(card) for card in job_cards]
+
+
+def has_next_page(soup: BeautifulSoup) -> bool:
+    has_pagination = soup.select_one('[aria-label="Next"]') is not None
+    if has_pagination:
+        return True
+    else:
+        return False
 
 
 DEFAULT_HEADERS = {
@@ -97,11 +105,22 @@ DEFAULT_HEADERS = {
 }
 
 
-async def fetch_jobs(link: str) -> list[OljJobSchema]:
+@dataclass
+class FetchResult:
+    jobs: list[OljJobSchema]
+    has_next_page: bool
+
+
+async def fetch_jobs(link: str) -> FetchResult:
     headers = DEFAULT_HEADERS.copy()
 
     client = get_client()
     response = await client.get(link, headers=headers)
     response.raise_for_status()
 
-    return parse_job_listings(response.text)
+    soup = BeautifulSoup(response.text, "html.parser")
+
+    return FetchResult(
+        jobs=parse_job_listings(soup),
+        has_next_page=has_next_page(soup),
+    )
