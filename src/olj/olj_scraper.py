@@ -39,6 +39,8 @@ LINKS = [
 
 
 async def _scrape_link(link: OljLink, target_link: int, total_link: int) -> None:
+    MAX_SKIPPED_COUNT = 10
+
     for current_page in range(1, link.max_page + 1):
         current_link = link.get_next_page(current_page)
         logger.debug(f"[OnlineJobs] Scraping link: {current_link}")
@@ -98,6 +100,12 @@ async def _scrape_link(link: OljLink, target_link: int, total_link: int) -> None
 
         if current_page < link.max_page:
             await asyncio.sleep(random.uniform(3.5, 5.0))
+
+        if skipped_count >= MAX_SKIPPED_COUNT:
+            logger.info(
+                f"Reached max skipped count ({MAX_SKIPPED_COUNT}), stopping further scraping for this link."
+            )
+            break
 
 
 async def scrape_olj(
