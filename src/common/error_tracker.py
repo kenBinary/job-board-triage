@@ -1,12 +1,16 @@
 from typing import Optional
-from src.common.configuration import MAX_CONSECUTIVE_ERRORS
+from src.common.settings import settings
 from src.common.logger import get_logger
 
 logger = get_logger("error_tracker")
 
 
 class ConsecutiveErrorTracker:
-    def __init__(self, board_name: str, max_errors: int = MAX_CONSECUTIVE_ERRORS):
+    def __init__(
+        self,
+        board_name: str,
+        max_errors: int = settings.max_consecutive_link_errors,
+    ):
         self.board_name = board_name
         self.max_errors = max_errors
         self.consecutive_errors = 0

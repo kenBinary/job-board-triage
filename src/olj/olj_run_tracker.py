@@ -2,7 +2,7 @@ import json
 from typing import List, Optional
 from pathlib import Path
 
-from src.common.configuration import MAX_CONSECUTIVE_ERRORS
+from src.common.settings import settings
 from src.common.enums.job_board import JobBoardEnum
 from src.common.error_tracker import ConsecutiveErrorTracker
 from src.common.logger import get_logger
@@ -16,7 +16,10 @@ class OljRunTracker(ConsecutiveErrorTracker):
     _FILE_PATH = _RETRY_STATE_DIR / f"{JobBoardEnum.Olj}-failed-links.json"
 
     def __init__(self, links: List[OljLink], is_retry_run: bool = False):
-        super().__init__(board_name=JobBoardEnum.Olj, max_errors=MAX_CONSECUTIVE_ERRORS)
+        super().__init__(
+            board_name=JobBoardEnum.Olj,
+            max_errors=settings.max_consecutive_link_errors,
+        )
         self.links = links
         self.halted = False
         self.current_index = 0
