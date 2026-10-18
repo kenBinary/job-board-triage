@@ -1,41 +1,17 @@
 import asyncio
 import random
 
+from src.common.enums.job_board import JobBoardEnum
 from src.common.logger import format_job_log, get_logger
+from src.common.settings import settings
 from src.db.database import SessionLocal
 from src.olj.db import create_olj_details_bulk, get_olj_details_by_job_id
 from src.olj.get_jobs import fetch_jobs
 from src.olj.models.olj_job_details import OljJobDetails
-from src.olj.models.olj_link import OljLink, OljParams
+from src.olj.models.olj_link import OljLink
 from src.olj.olj_run_tracker import OljRunTracker
 
 logger = get_logger("olj_scraper")
-
-BASE_URL = "https://www.onlinejobs.ph/jobseekers/jobsearch"
-
-LINKS = [
-    OljLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=OljParams(jobkeyword=jobkeyword),
-    )
-    for jobkeyword in [
-        "engineer",
-        "developer",
-        "fastapi",
-        "asp.net",
-        ".net",
-        "c#",
-        "python",
-        "angular",
-        "react",
-        "typescript",
-        "javascript",
-        "css",
-        "html",
-        "programmer",
-    ]
-]
 
 
 async def _scrape_link(link: OljLink, target_link: int, total_link: int) -> None:
@@ -111,7 +87,9 @@ async def _scrape_link(link: OljLink, target_link: int, total_link: int) -> None
 async def scrape_olj(
     links: list[OljLink] | None = None, is_retry: bool = False
 ) -> None:
-    targets = links if links is not None else LINKS
+    targets = (
+        links if links is not None else settings.get_scraper_links(JobBoardEnum.Olj)
+    )
     tracker = OljRunTracker(links=targets, is_retry_run=is_retry)
 
     try:

@@ -43,7 +43,7 @@ class ScraperOrchestrator:
             if has_retry:
                 logger.info(f"[{board.value}] Resuming {count} link(s).")
                 return BoardConfig(links=tracker.load_retry_links(), is_retry=True)
-            logger.info(f"[{board.value}] No retry state found; running default links.")
+            logger.info(f"[{board.value}] No retry state found; running configured links.")
             return BoardConfig(links=None, is_retry=False)
 
         if has_retry:

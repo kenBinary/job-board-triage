@@ -1,40 +1,17 @@
 import asyncio
 import random
 
+from src.common.enums.job_board import JobBoardEnum
 from src.common.logger import format_job_log, get_logger
+from src.common.settings import settings
 from src.db.database import SessionLocal
 from src.mynimo.db import create_mynimo_details_bulk, get_mynimo_details_by_job_id
 from src.mynimo.get_jobs import fetch_jobs
 from src.mynimo.models.mynimo_job_details import MynimoJobDetails
-from src.mynimo.models.mynimo_link import MynimoLink, MynimoParams
+from src.mynimo.models.mynimo_link import MynimoLink
 from src.mynimo.mynimo_run_tracker import MynimoRunTracker
 
 logger = get_logger("mynimo_scraper")
-
-BASE_URL = "https://www.mynimo.com/api/jobs/local/browse"
-
-LINKS: list[MynimoLink] = [
-    MynimoLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=MynimoParams(path="/cebu-jobs"),
-    ),
-    MynimoLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=MynimoParams(path="/cdo-jobs"),
-    ),
-    MynimoLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=MynimoParams(path="/davao-jobs"),
-    ),
-    MynimoLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=MynimoParams(path="/home-based-jobs"),
-    ),
-]
 
 
 async def scrape_mynimo_link(
@@ -137,7 +114,9 @@ async def scrape_mynimo(
     links: list[MynimoLink] | None = None, is_retry: bool = False
 ) -> None:
     """Scrape all configured Mynimo search targets."""
-    targets = links if links is not None else LINKS
+    targets = (
+        links if links is not None else settings.get_scraper_links(JobBoardEnum.Mynimo)
+    )
     tracker = MynimoRunTracker(links=targets, is_retry_run=is_retry)
 
     try:

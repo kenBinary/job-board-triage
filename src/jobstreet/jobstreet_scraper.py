@@ -1,9 +1,10 @@
 import asyncio
 import math
 import random
-from typing import List
 
+from src.common.enums.job_board import JobBoardEnum
 from src.common.logger import format_job_log, get_logger
+from src.common.settings import settings
 from src.db.database import SessionLocal
 from src.jobstreet.db import (
     create_jobstreet_details_bulk,
@@ -12,95 +13,9 @@ from src.jobstreet.db import (
 from src.jobstreet.get_jobs import fetch_jobs, WorkArrangementEnum
 from src.jobstreet.jobstreet_run_tracker import JobstreetRunTracker
 from src.jobstreet.models.jobstreet_job_details import JobStreetJobDetails
-from src.jobstreet.models.jobstreet_link import JobStreetLink, JobStreetParams
+from src.jobstreet.models.jobstreet_link import JobStreetLink
 
 logger = get_logger("jobstreet_scraper")
-
-BASE_URL = "https://ph.jobstreet.com/graphql"
-
-LINKS: List[JobStreetLink] = [
-    JobStreetLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=JobStreetParams(
-            text="developer",
-            where=["Philippines"],
-            work_arrangement_ids=[WorkArrangementEnum.REMOTE],
-            listed_at="7d",
-            sort="listedAt",
-            page_size=10,
-        ),
-    ),
-    JobStreetLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=JobStreetParams(
-            text="software",
-            where=["Philippines"],
-            work_arrangement_ids=[WorkArrangementEnum.REMOTE],
-            listed_at="7d",
-            sort="listedAt",
-            page_size=10,
-        ),
-    ),
-    JobStreetLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=JobStreetParams(
-            text="engineer",
-            where=["Philippines"],
-            work_arrangement_ids=[WorkArrangementEnum.REMOTE],
-            listed_at="7d",
-            sort="listedAt",
-            page_size=10,
-        ),
-    ),
-    JobStreetLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=JobStreetParams(
-            text="",
-            where=["Cagayan de Oro Misamis Oriental"],
-            listed_at="7d",
-            sort="listedAt",
-            page_size=10,
-        ),
-    ),
-    JobStreetLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=JobStreetParams(
-            text="developer",
-            where=["Cebu City Cebu"],
-            listed_at="7d",
-            sort="listedAt",
-            page_size=10,
-        ),
-    ),
-    JobStreetLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=JobStreetParams(
-            text="engineer",
-            where=["Cebu City Cebu"],
-            listed_at="7d",
-            sort="listedAt",
-            page_size=10,
-        ),
-    ),
-    JobStreetLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=JobStreetParams(
-            text="software",
-            where=["Cebu City Cebu"],
-            listed_at="7d",
-            sort="listedAt",
-            page_size=10,
-        ),
-    ),
-]
-
 
 async def scrape_jobstreet_link(
     link: JobStreetLink, target_idx: int, total_targets: int
@@ -186,7 +101,11 @@ async def scrape_jobstreet(
     links: list[JobStreetLink] | None = None, is_retry: bool = False
 ) -> None:
     """Scrape all configured JobStreet search targets."""
-    targets = links if links is not None else LINKS
+    targets = (
+        links
+        if links is not None
+        else settings.get_scraper_links(JobBoardEnum.JobStreet)
+    )
     tracker = JobstreetRunTracker(links=targets, is_retry_run=is_retry)
 
     try:

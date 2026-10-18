@@ -6,16 +6,14 @@ from typing import Optional
 
 from playwright.async_api import ElementHandle, Page
 
+from src.common.enums.job_board import JobBoardEnum
 from src.common.infra.dependencies import infra_container
 from src.common.logger import format_job_log, get_logger
 from src.common.playwright.utils import screenshot_and_return_base64
+from src.common.settings import settings
 from src.db.database import SessionLocal
 from src.facebook_posts.facebook_posts_run_tracker import FacebookPostsRunTracker
-from src.facebook_posts.models.facebook_post_link import (
-    FacebookLinkType,
-    FacebookPostLink,
-    FacebookPostParams,
-)
+from src.facebook_posts.models.facebook_post_link import FacebookPostLink
 from src.common.media_utils import base64_to_data_url, fetch_image_as_data_url
 from .db import (
     create_facebook_post_details_bulk,
@@ -36,107 +34,6 @@ facebook_llm_extractor = FacebookLLMExtractor(
 MAX_EXISTING_POSTS_PER_SCROLL: int = 3
 MAX_FAILED_POSTS_PER_LINK: int = 10
 MAX_SKIPPED_POSTS_PER_LINK: int = 10
-
-DEFAULT_LINKS: list[FacebookPostLink] = [
-    FacebookPostLink(
-        max_scrolls=3,
-        params=FacebookPostParams(
-            query="hiringph",
-            link_type=FacebookLinkType.HASHTAG,
-        ),
-    ),
-    FacebookPostLink(
-        max_scrolls=3,
-        params=FacebookPostParams(
-            query="workfromhomeph",
-            link_type=FacebookLinkType.HASHTAG,
-        ),
-    ),
-    FacebookPostLink(
-        max_scrolls=3,
-        params=FacebookPostParams(
-            query="remotejobsph",
-            link_type=FacebookLinkType.HASHTAG,
-        ),
-    ),
-    FacebookPostLink(
-        max_scrolls=3,
-        params=FacebookPostParams(
-            query="techjobs",
-            link_type=FacebookLinkType.HASHTAG,
-        ),
-    ),
-    FacebookPostLink(
-        max_scrolls=3,
-        params=FacebookPostParams(
-            query="developerjobs",
-            link_type=FacebookLinkType.HASHTAG,
-        ),
-    ),
-    FacebookPostLink(
-        max_scrolls=3,
-        params=FacebookPostParams(
-            query="wearehiring",
-            link_type=FacebookLinkType.HASHTAG,
-        ),
-    ),
-    FacebookPostLink(
-        max_scrolls=3,
-        params=FacebookPostParams(
-            query="jobsph",
-            link_type=FacebookLinkType.HASHTAG,
-        ),
-    ),
-    FacebookPostLink(
-        max_scrolls=3,
-        params=FacebookPostParams(
-            query="cdojob",
-            link_type=FacebookLinkType.HASHTAG,
-        ),
-    ),
-    FacebookPostLink(
-        max_scrolls=3,
-        params=FacebookPostParams(
-            query="cdojobopportunity",
-            link_type=FacebookLinkType.HASHTAG,
-        ),
-    ),
-    FacebookPostLink(
-        max_scrolls=3,
-        params=FacebookPostParams(
-            query="cebujobs",
-            link_type=FacebookLinkType.HASHTAG,
-        ),
-    ),
-    FacebookPostLink(
-        max_scrolls=3,
-        params=FacebookPostParams(
-            query="hiringnow",
-            link_type=FacebookLinkType.HASHTAG,
-        ),
-    ),
-    FacebookPostLink(
-        max_scrolls=3,
-        params=FacebookPostParams(
-            query="jobsincebu",
-            link_type=FacebookLinkType.HASHTAG,
-        ),
-    ),
-    FacebookPostLink(
-        max_scrolls=3,
-        params=FacebookPostParams(
-            query="philippinesjobs",
-            link_type=FacebookLinkType.HASHTAG,
-        ),
-    ),
-    FacebookPostLink(
-        max_scrolls=3,
-        params=FacebookPostParams(
-            query="jobphilippines",
-            link_type=FacebookLinkType.HASHTAG,
-        ),
-    ),
-]
 
 _JS_SCROLL_FEED_BOTTOM = """\
 () => {
@@ -475,7 +372,11 @@ async def scrape_facebook_posts(
     links: Optional[list[FacebookPostLink]] = None,
     is_retry: bool = False,
 ) -> None:
-    targets = links if links is not None else DEFAULT_LINKS
+    targets = (
+        links
+        if links is not None
+        else settings.get_scraper_links(JobBoardEnum.FacebookPosts)
+    )
     tracker = FacebookPostsRunTracker(links=targets, is_retry_run=is_retry)
 
     page = await infra_container.camoufox_provider.create_new_page()

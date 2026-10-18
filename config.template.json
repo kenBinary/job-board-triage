@@ -1,0 +1,114 @@
+{
+  "scrapers": {
+    "indeed": [
+      {
+        "max_page": 2,
+        "base_url": "https://ph.indeed.com/jobs",
+        "params": {
+          "q": "developer",
+          "l": "Philippines",
+          "sort": "date",
+          "fromage": 7,
+          "sc": "0kf:attr(DSQF7);",
+          "radius": null
+        }
+      }
+    ],
+    "jobstreet": [
+      {
+        "max_page": 2,
+        "base_url": "https://ph.jobstreet.com/graphql",
+        "params": {
+          "text": "developer",
+          "where": [
+            "Philippines"
+          ],
+          "work_arrangement_ids": [
+            "3"
+          ],
+          "listed_at": "7d",
+          "sort": "listedAt",
+          "page_size": 10,
+          "distance_kms": 50,
+          "salary_min": null,
+          "salary_max": null,
+          "work_type_ids": null,
+          "category_ids": null,
+          "organisation_id": null,
+          "organisation_name": null,
+          "country": "PH",
+          "locale": "en-PH",
+          "zone": "asia-6",
+          "timezone": "Asia/Manila",
+          "auth_token": null
+        }
+      }
+    ],
+    "kalibrr": [
+      {
+        "max_page": 2,
+        "base_url": "https://www.kalibrr.com/kjs/job_board/search",
+        "params": {
+          "text": "developer",
+          "is_work_from_home": true,
+          "country": "Philippines",
+          "offset": 0,
+          "limit": 15,
+          "location": null
+        }
+      }
+    ],
+    "linkedin": [
+      {
+        "max_page": 5,
+        "base_url": "https://www.linkedin.com/jobs/search-results/",
+        "params": {
+          "keywords": "developer",
+          "location": "103121230",
+          "f_TPR": "r604800",
+          "f_SAL": null
+        }
+      }
+    ],
+    "linkedin-posts": [
+      {
+        "base_url": "https://www.linkedin.com/search/results/content/",
+        "max_scrolls": 10,
+        "params": {
+          "keywords": "#remotejobsph",
+          "sort_by": "date_posted",
+          "date_posted": "past-week"
+        }
+      }
+    ],
+    "mynimo": [
+      {
+        "max_page": 2,
+        "base_url": "https://www.mynimo.com/api/jobs/local/browse",
+        "params": {
+          "path": "/cebu-jobs"
+        }
+      }
+    ],
+    "olj": [
+      {
+        "max_page": 2,
+        "base_url": "https://www.onlinejobs.ph/jobseekers/jobsearch",
+        "params": {
+          "jobkeyword": "engineer"
+        }
+      }
+    ],
+    "facebook-posts": [
+      {
+        "base_url": "https://www.facebook.com/hashtag",
+        "max_scrolls": 3,
+        "params": {
+          "query": "hiringph",
+          "link_type": "hashtag",
+          "recent_posts": true
+        }
+      }
+    ]
+  }
+}

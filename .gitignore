@@ -12,4 +12,5 @@ test.js
 *.db
 camoufox_profile
 .env
+config.json
 .data/**

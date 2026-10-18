@@ -5,9 +5,11 @@ from typing import Optional, Tuple
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from playwright.async_api import ElementHandle, Page
 
+from src.common.enums.job_board import JobBoardEnum
 from src.common.infra.dependencies import infra_container
 from src.common.logger import format_job_log, get_logger
 from src.common.playwright.utils import screenshot_and_return_base64
+from src.common.settings import settings
 from src.db.database import SessionLocal
 from src.linkedin_posts.db import (
     create_linkedin_post_details,
@@ -19,10 +21,7 @@ from src.linkedin_posts.linkedin_llm_extractor import (
 )
 from src.linkedin_posts.linkedin_posts_run_tracker import LinkedinPostsRunTracker
 from src.linkedin_posts.models.linkedin_post_job_details import LinkedInPostJobDetails
-from src.linkedin_posts.models.linkedin_post_link import (
-    LinkedInPostLink,
-    LinkedInPostParams,
-)
+from src.linkedin_posts.models.linkedin_post_link import LinkedInPostLink
 from src.common.media_utils import base64_to_data_url, fetch_image_as_data_url
 
 logger = get_logger("linkedin_posts_scraper")
@@ -32,20 +31,6 @@ linkedin_llm_extractor = LinkedInLLMExtractor(
 )
 
 CONTROL_MENU_URL_FRAGMENT = "feedUpdateControlMenuRequest"
-
-DEFAULT_LINKS: list[LinkedInPostLink] = [
-    LinkedInPostLink(params=LinkedInPostParams(keywords="#remotejobsph")),
-    LinkedInPostLink(params=LinkedInPostParams(keywords="#jobsphilippines")),
-    LinkedInPostLink(params=LinkedInPostParams(keywords="#hiringphilippines")),
-    LinkedInPostLink(params=LinkedInPostParams(keywords="#jobsph")),
-    LinkedInPostLink(params=LinkedInPostParams(keywords="#hiringph")),
-    LinkedInPostLink(params=LinkedInPostParams(keywords="#philippinejobs")),
-    LinkedInPostLink(params=LinkedInPostParams(keywords="#onlinejobsph")),
-    LinkedInPostLink(params=LinkedInPostParams(keywords="#workfromhomeph")),
-    LinkedInPostLink(params=LinkedInPostParams(keywords="#cebujobs")),
-    LinkedInPostLink(params=LinkedInPostParams(keywords="#cdohiring")),
-    LinkedInPostLink(params=LinkedInPostParams(keywords="#cdojobs")),
-]
 
 
 async def _get_image_urls_from_element(page: Page, element_id: str) -> list[str]:
@@ -391,7 +376,11 @@ async def scrape_linkedin_posts(
     links: Optional[list[LinkedInPostLink]] = None,
     is_retry: bool = False,
 ) -> None:
-    targets = links if links is not None else DEFAULT_LINKS
+    targets = (
+        links
+        if links is not None
+        else settings.get_scraper_links(JobBoardEnum.LinkedinPosts)
+    )
     tracker = LinkedinPostsRunTracker(links=targets, is_retry_run=is_retry)
 
     page = await infra_container.camoufox_provider.create_new_page()

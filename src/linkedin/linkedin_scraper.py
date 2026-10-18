@@ -3,8 +3,10 @@ import random
 from typing import List, Optional, Tuple, TypedDict
 from playwright.async_api import Page
 
+from src.common.enums.job_board import JobBoardEnum
 from src.common.infra.dependencies import infra_container
 from src.common.logger import format_job_log, get_logger
+from src.common.settings import settings
 from src.db.database import SessionLocal
 from src.linkedin.db import (
     create_linkedin_details_bulk,
@@ -14,84 +16,13 @@ from src.linkedin.linkedin_llm_extractor import LinkedInJobLLMExtractor
 from src.linkedin.linkedin_run_tracker import LinkedinRunTracker
 from src.linkedin.models.job_card import JobCardRawData
 from src.linkedin.models.linkedin_job_details import LinkedInJobDetails
-from src.linkedin.models.linkedin_link import LinkedInLink, LinkedInParams, LocationEnum
+from src.linkedin.models.linkedin_link import LinkedInLink
 
 logger = get_logger("linkedin_scraper")
 
 linkedin_job_extractor = LinkedInJobLLMExtractor()
 
 BASE_SEARCH_URL = "https://www.linkedin.com/jobs/search-results/"
-DEFAULT_LINKS: list[LinkedInLink] = [
-    LinkedInLink(
-        base_url=BASE_SEARCH_URL,
-        max_page=5,
-        params=LinkedInParams(keywords="developer", location=LocationEnum.PHILIPPINES),
-    ),
-    LinkedInLink(
-        base_url=BASE_SEARCH_URL,
-        max_page=5,
-        params=LinkedInParams(keywords="software", location=LocationEnum.PHILIPPINES),
-    ),
-    LinkedInLink(
-        base_url=BASE_SEARCH_URL,
-        max_page=5,
-        params=LinkedInParams(keywords="engineer", location=LocationEnum.PHILIPPINES),
-    ),
-    LinkedInLink(
-        base_url=BASE_SEARCH_URL,
-        max_page=5,
-        params=LinkedInParams(keywords="developer", location=LocationEnum.CEBU),
-    ),
-    LinkedInLink(
-        base_url=BASE_SEARCH_URL,
-        max_page=5,
-        params=LinkedInParams(keywords="software", location=LocationEnum.CEBU),
-    ),
-    LinkedInLink(
-        base_url=BASE_SEARCH_URL,
-        max_page=5,
-        params=LinkedInParams(keywords="engineer", location=LocationEnum.CEBU),
-    ),
-    LinkedInLink(
-        base_url=BASE_SEARCH_URL,
-        max_page=5,
-        params=LinkedInParams(
-            keywords="developer", location=LocationEnum.CAGAYAN_DE_ORO
-        ),
-    ),
-    LinkedInLink(
-        base_url=BASE_SEARCH_URL,
-        max_page=5,
-        params=LinkedInParams(
-            keywords="software", location=LocationEnum.CAGAYAN_DE_ORO
-        ),
-    ),
-    LinkedInLink(
-        base_url=BASE_SEARCH_URL,
-        max_page=5,
-        params=LinkedInParams(keywords="c#", location=LocationEnum.PHILIPPINES),
-    ),
-    LinkedInLink(
-        base_url=BASE_SEARCH_URL,
-        max_page=5,
-        params=LinkedInParams(keywords=".net", location=LocationEnum.PHILIPPINES),
-    ),
-    LinkedInLink(
-        base_url=BASE_SEARCH_URL,
-        max_page=5,
-        params=LinkedInParams(keywords="asp.net", location=LocationEnum.PHILIPPINES),
-    ),
-    LinkedInLink(
-        base_url=BASE_SEARCH_URL,
-        max_page=5,
-        params=LinkedInParams(keywords="react", location=LocationEnum.PHILIPPINES),
-    ),
-    LinkedInLink(
-        base_url=BASE_SEARCH_URL,
-        max_page=5,
-        params=LinkedInParams(keywords="angular", location=LocationEnum.PHILIPPINES),
-    ),
-]
 
 
 class ScrollResult(TypedDict):
@@ -307,7 +238,11 @@ async def scrape_linkedin(
     links: Optional[list[LinkedInLink]] = None,
     is_retry: bool = False,
 ) -> None:
-    targets = links if links is not None else DEFAULT_LINKS
+    targets = (
+        links
+        if links is not None
+        else settings.get_scraper_links(JobBoardEnum.Linkedin)
+    )
     tracker = LinkedinRunTracker(links=targets, is_retry_run=is_retry)
 
     page = await infra_container.camoufox_provider.create_new_page()

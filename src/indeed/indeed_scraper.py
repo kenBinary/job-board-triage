@@ -3,121 +3,20 @@ import random
 from typing import List
 from playwright.async_api import Page
 
+from src.common.enums.job_board import JobBoardEnum
 from src.common.infra.dependencies import infra_container
 from src.common.logger import format_job_log, get_logger
+from src.common.settings import settings
 from src.db.database import SessionLocal
 from src.indeed.db import create_indeed_details_bulk, get_indeed_details_by_job_id
 from src.indeed.get_jobs import fetch_job
 from src.indeed.models.indeed_job_details import IndeedJobDetails
-from src.indeed.models.indeed_link import IndeedLink, IndeedParams
+from src.indeed.models.indeed_link import IndeedLink
 from src.indeed.indeed_run_tracker import IndeedRunTracker
 
 logger = get_logger("indeed_scraper")
 
-BASE_URL = "https://ph.indeed.com/jobs"
 
-
-LINKS: List[IndeedLink] = [
-    IndeedLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=IndeedParams(
-            q="developer",
-            l="Philippines",
-            sort="date",
-            fromage=7,
-            sc="0kf:attr(DSQF7);",
-            radius=None,
-        ),
-    ),
-    IndeedLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=IndeedParams(
-            q="software",
-            l="Philippines",
-            sort="date",
-            fromage=7,
-            sc="0kf:attr(DSQF7);",
-            radius=None,
-        ),
-    ),
-    IndeedLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=IndeedParams(
-            q="c#", l="Cebu City, Cebu", sort="date", fromage=7, radius=25, sc=None
-        ),
-    ),
-    IndeedLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=IndeedParams(
-            q="asp.net", l="Cebu City, Cebu", sort="date", fromage=7, radius=25, sc=None
-        ),
-    ),
-    IndeedLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=IndeedParams(
-            q="engineer",
-            l="Philippines",
-            sort="date",
-            fromage=7,
-            sc="0kf:attr(DSQF7);",
-            radius=None,
-        ),
-    ),
-    IndeedLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=IndeedParams(
-            q="angular", l="Cebu", sort="date", fromage=7, radius=25, sc=None
-        ),
-    ),
-    IndeedLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=IndeedParams(
-            q="react", l="Cebu", sort="date", fromage=7, radius=25, sc=None
-        ),
-    ),
-    IndeedLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=IndeedParams(
-            q="engineer", l="Cebu", sort="date", fromage=7, radius=25, sc=None
-        ),
-    ),
-    IndeedLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=IndeedParams(
-            q="developer", l="Cebu", sort="date", fromage=7, radius=25, sc=None
-        ),
-    ),
-    IndeedLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=IndeedParams(
-            q="software", l="Cebu", sort="date", fromage=7, radius=25, sc=None
-        ),
-    ),
-    IndeedLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=IndeedParams(
-            q=None,
-            l="Cagayan de Oro City, Misamis Oriental",
-            sort="date",
-            fromage=7,
-            radius=25,
-            sc=None,
-        ),
-    ),
-]
-
-PROFILE_DIR = "./camoufox_profile"
 SKIPPED_JOBS_THRESHOLD = 10
 
 
@@ -211,7 +110,9 @@ async def _scrape_link(
 async def scrape_indeed(
     links: list[IndeedLink] | None = None, is_retry: bool = False
 ) -> None:
-    targets = links if links is not None else LINKS
+    targets = (
+        links if links is not None else settings.get_scraper_links(JobBoardEnum.Indeed)
+    )
     tracker = IndeedRunTracker(links=targets, is_retry_run=is_retry)
 
     page = await infra_container.camoufox_provider.get_primary_page()

@@ -2,69 +2,17 @@ import asyncio
 import math
 import random
 
+from src.common.enums.job_board import JobBoardEnum
 from src.common.logger import format_job_log, get_logger
+from src.common.settings import settings
 from src.db.database import SessionLocal
 from src.kalibrr.db import create_kalibrr_details_bulk, get_kalibrr_details_by_job_id
 from src.kalibrr.get_jobs import fetch_jobs
 from src.kalibrr.models.kalibrr_job_details import KalibrrJobDetails
-from src.kalibrr.models.kalibrr_link import KalibrrLink, KalibrrParams
+from src.kalibrr.models.kalibrr_link import KalibrrLink
 from src.kalibrr.kalibrr_run_tracker import KalibrrRunTracker
 
 logger = get_logger("kalibrr_scraper")
-
-BASE_URL = "https://www.kalibrr.com/kjs/job_board/search"
-
-LINKS: list[KalibrrLink] = [
-    KalibrrLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=KalibrrParams(
-            text="developer", is_work_from_home=True, country="Philippines"
-        ),
-    ),
-    KalibrrLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=KalibrrParams(
-            text="software", is_work_from_home=True, country="Philippines"
-        ),
-    ),
-    KalibrrLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=KalibrrParams(
-            text="engineer", is_work_from_home=True, country="Philippines"
-        ),
-    ),
-    KalibrrLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=KalibrrParams(text="web", is_work_from_home=True, country="Philippines"),
-    ),
-    KalibrrLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=KalibrrParams(
-            text=".net", is_work_from_home=True, country="Philippines"
-        ),
-    ),
-    KalibrrLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=KalibrrParams(location="Cagayan de Oro"),
-    ),
-    KalibrrLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=KalibrrParams(location="Davao City"),
-    ),
-    KalibrrLink(
-        max_page=2,
-        base_url=BASE_URL,
-        params=KalibrrParams(location="Cebu City"),
-    ),
-]
-
 
 async def scrape_kalibrr_link(
     link_target: KalibrrLink, target_idx: int, total_targets: int
@@ -167,7 +115,9 @@ async def scrape_kalibrr(
     links: list[KalibrrLink] | None = None, is_retry: bool = False
 ) -> None:
     """Scrape all configured Kalibrr search targets."""
-    targets = links if links is not None else LINKS
+    targets = (
+        links if links is not None else settings.get_scraper_links(JobBoardEnum.Kalibrr)
+    )
     tracker = KalibrrRunTracker(links=targets, is_retry_run=is_retry)
 
     try:
