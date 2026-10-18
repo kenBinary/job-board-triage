@@ -12,6 +12,7 @@ dependencies = [
     "lxml>=6.1.3",
     "nicegui>=3.17.1",
     "pydantic>=2.13.5",
+    "pydantic-settings>=2.15.0",
     "python-dotenv>=1.2.3",
     "sqlalchemy>=2.0.54",
     "typer>=0.27.2",
