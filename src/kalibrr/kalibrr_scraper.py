@@ -1,7 +1,6 @@
 import asyncio
 import math
 import random
-from sqlalchemy.orm import Session
 
 from src.common.logger import format_job_log, get_logger
 from src.db.database import SessionLocal
@@ -68,7 +67,7 @@ LINKS: list[KalibrrLink] = [
 
 
 async def scrape_kalibrr_link(
-    db: Session, link_target: KalibrrLink, target_idx: int, total_targets: int
+    link_target: KalibrrLink, target_idx: int, total_targets: int
 ) -> None:
     """Scrape a single Kalibrr search target across up to max_page pages."""
     for current_page in range(1, link_target.max_page + 1):
@@ -100,8 +99,8 @@ async def scrape_kalibrr_link(
 
             for job_idx, job in enumerate(jobs_in_page, 1):
                 job_id_str = str(job.id)
-
-                existing = get_kalibrr_details_by_job_id(db, job_id_str)
+                with SessionLocal() as db:
+                    existing = get_kalibrr_details_by_job_id(db, job_id_str)
                 if existing:
                     skipped_count += 1
                     logger.debug(
@@ -139,7 +138,8 @@ async def scrape_kalibrr_link(
                 logger.debug(formatted_job)
 
             if new_jobs:
-                create_kalibrr_details_bulk(db, new_jobs)
+                with SessionLocal() as db:
+                    create_kalibrr_details_bulk(db, new_jobs)
 
             logger.info(
                 f"[Kalibrr] Target {target_idx}/{total_targets} [page {current_page}/{link_target.max_page}]: "
@@ -171,29 +171,28 @@ async def scrape_kalibrr(
     tracker = KalibrrRunTracker(links=targets, is_retry_run=is_retry)
 
     try:
-        with SessionLocal() as db:
-            total = len(targets)
-            logger.info(f"[Kalibrr] Scraping {total} target link(s)...")
-            for index, link_target in enumerate(targets):
-                tracker.set_current_index(index)
-                logger.info(
-                    f"[Kalibrr] Target {index + 1}/{total}: '{link_target.params.text or 'All'}'"
+        total = len(targets)
+        logger.info(f"[Kalibrr] Scraping {total} target link(s)...")
+        for index, link_target in enumerate(targets):
+            tracker.set_current_index(index)
+            logger.info(
+                f"[Kalibrr] Target {index + 1}/{total}: '{link_target.params.text or 'All'}'"
+            )
+            try:
+                await scrape_kalibrr_link(
+                    link_target, target_idx=index + 1, total_targets=total
                 )
-                try:
-                    await scrape_kalibrr_link(
-                        db, link_target, target_idx=index + 1, total_targets=total
-                    )
-                    tracker.record_success()
-                except Exception as e:
-                    logger.error(
-                        f"[Kalibrr] Failed target {index + 1}/{total} ({link_target.get_next_page(1)}): {e}"
-                    )
-                    if tracker.record_link_error(link=link_target, error=e):
-                        break
+                tracker.record_success()
+            except Exception as e:
+                logger.error(
+                    f"[Kalibrr] Failed target {index + 1}/{total} ({link_target.get_next_page(1)}): {e}"
+                )
+                if tracker.record_link_error(link=link_target, error=e):
+                    break
 
-                if index < total - 1:
-                    delay = random.uniform(4.0, 8.0)
-                    await asyncio.sleep(delay)
+            if index < total - 1:
+                delay = random.uniform(4.0, 8.0)
+                await asyncio.sleep(delay)
 
         tracker.finalize()
 

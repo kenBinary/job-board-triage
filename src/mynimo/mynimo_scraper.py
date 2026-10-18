@@ -1,6 +1,5 @@
 import asyncio
 import random
-from sqlalchemy.orm import Session
 
 from src.common.logger import format_job_log, get_logger
 from src.db.database import SessionLocal
@@ -39,7 +38,7 @@ LINKS: list[MynimoLink] = [
 
 
 async def scrape_mynimo_link(
-    db: Session, link_target: MynimoLink, target_idx: int, total_targets: int
+    link_target: MynimoLink, target_idx: int, total_targets: int
 ) -> None:
     """Scrape a single Mynimo search target across up to max_page pages."""
     for current_page in range(1, link_target.max_page + 1):
@@ -62,7 +61,9 @@ async def scrape_mynimo_link(
             for job_idx, job in enumerate(jobs_in_page, 1):
                 job_id_str = str(job.id)
 
-                existing = get_mynimo_details_by_job_id(db, job_id_str)
+                with SessionLocal() as db:
+                    existing = get_mynimo_details_by_job_id(db, job_id_str)
+
                 if existing:
                     skipped_count += 1
                     logger.debug(
@@ -109,7 +110,8 @@ async def scrape_mynimo_link(
                 logger.debug(formatted_job)
 
             if new_jobs:
-                create_mynimo_details_bulk(db, new_jobs)
+                with SessionLocal() as db:
+                    create_mynimo_details_bulk(db, new_jobs)
 
             logger.info(
                 f"[Mynimo] Target {target_idx}/{total_targets} [page {current_page}/{link_target.max_page}]: "
@@ -139,29 +141,28 @@ async def scrape_mynimo(
     tracker = MynimoRunTracker(links=targets, is_retry_run=is_retry)
 
     try:
-        with SessionLocal() as db:
-            total = len(targets)
-            logger.info(f"[Mynimo] Scraping {total} target link(s)...")
-            for index, link_target in enumerate(targets):
-                tracker.set_current_index(index)
-                logger.info(
-                    f"[Mynimo] Target {index + 1}/{total}: path='{link_target.params.path}'"
+        total = len(targets)
+        logger.info(f"[Mynimo] Scraping {total} target link(s)...")
+        for index, link_target in enumerate(targets):
+            tracker.set_current_index(index)
+            logger.info(
+                f"[Mynimo] Target {index + 1}/{total}: path='{link_target.params.path}'"
+            )
+            try:
+                await scrape_mynimo_link(
+                    link_target, target_idx=index + 1, total_targets=total
                 )
-                try:
-                    await scrape_mynimo_link(
-                        db, link_target, target_idx=index + 1, total_targets=total
-                    )
-                    tracker.record_success()
-                except Exception as e:
-                    logger.error(
-                        f"[Mynimo] Failed target {index + 1}/{total} ({link_target.get_next_page(1)}): {e}"
-                    )
-                    if tracker.record_link_error(link=link_target, error=e):
-                        break
+                tracker.record_success()
+            except Exception as e:
+                logger.error(
+                    f"[Mynimo] Failed target {index + 1}/{total} ({link_target.get_next_page(1)}): {e}"
+                )
+                if tracker.record_link_error(link=link_target, error=e):
+                    break
 
-                if index < total - 1:
-                    delay = random.uniform(3.0, 6.0)
-                    await asyncio.sleep(delay)
+            if index < total - 1:
+                delay = random.uniform(3.0, 6.0)
+                await asyncio.sleep(delay)
 
         tracker.finalize()
 
